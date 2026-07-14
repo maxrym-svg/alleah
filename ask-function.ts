@@ -1,4 +1,4 @@
-// Edge Function: ask (v1)
+// Edge Function: ask (v2 - tunable similarity threshold + score logging)
 // Question -> voyage-4 query embedding -> pgvector search (match_folders, RLS applies)
 // -> Claude answers grounded ONLY in retrieved folders -> answer + which folders were used.
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -10,6 +10,10 @@ const CORS = {
 };
 
 const MODEL = "claude-sonnet-5";
+// Tunable via Edge Function secret SIM_THRESHOLD (no redeploy needed).
+// Default 0 = permissive/off. Set from real score data once ~30-50 folders exist.
+const SIM_THRESHOLD = Number(Deno.env.get("SIM_THRESHOLD") ?? "0") || 0;
+const MATCH_COUNT = Number(Deno.env.get("MATCH_COUNT") ?? "8") || 8;
 
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
@@ -56,13 +60,29 @@ Deno.serve(async (req) => {
     // 2) Vector search over the user's folders (RLS: only their rows)
     const rpc = await supabase.rpc("match_folders", {
       query_embedding: qEmbedding,
-      match_count: 8,
+      match_count: MATCH_COUNT,
     });
     if (rpc.error) return json({ error: rpc.error.message }, 500);
-    const matches = rpc.data ?? [];
+    const all = rpc.data ?? [];
+
+    // Log raw cosine scores for threshold calibration (visible in function logs)
+    console.log("ask_scores", JSON.stringify({
+      q: question.slice(0, 100),
+      threshold: SIM_THRESHOLD,
+      scores: all.map((m: { title: string; similarity: number }) => ({
+        t: m.title.slice(0, 50),
+        s: Math.round(m.similarity * 1000) / 1000,
+      })),
+    }));
+
+    const matches = all.filter(
+      (m: { similarity: number }) => m.similarity >= SIM_THRESHOLD,
+    );
     if (!matches.length) {
       return json({
-        answer: "Your memory has no folders yet, so I have nothing to answer from.",
+        answer: all.length
+          ? "Nothing in your memory cleared the relevance bar for this question."
+          : "Your memory has no folders yet, so I have nothing to answer from.",
         folders: [],
       });
     }

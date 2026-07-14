@@ -1,5 +1,6 @@
-// Edge Function: capture (v3 - CORS + robust JSON parsing)
-// Dictated thought -> Claude drafts atomic folders -> voyage-4 embeddings -> saved under the signed-in user (RLS).
+// Edge Function: capture (v4 - tool-call enforced drafting)
+// Dictated thought -> Claude drafts atomic folders via forced tool call (shape enforced
+// at the API level) -> voyage-4 embeddings -> saved under the signed-in user (RLS).
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
@@ -11,17 +12,49 @@ const CORS = {
 const MODEL = "claude-sonnet-5";
 const SYSTEM = [
   "You are the filing clerk for Max's personal knowledge memory.",
-  "Turn the dictated thought into one or more atomic folders.",
+  "Turn the dictated thought into one or more atomic folders using the file_folders tool.",
   "Rules:",
   "- Each folder captures exactly ONE idea in 3-5 sentences, self-contained enough to understand alone (no unresolved references like 'this' pointing outside the folder).",
   "- title: short and specific. type: one of concept | project | person | note.",
   "- Preserve Max's actual views and facts. Do not add filler or invent details.",
   "- Split multi-idea inputs into multiple folders.",
-  "- Only if the input is genuinely too ambiguous to file (you cannot tell what is meant), ask ONE clarifying question instead of filing.",
-  "Respond with ONLY valid JSON, no markdown fences:",
-  '{"folders":[{"title":"...","type":"...","body":"..."}]}',
-  'or {"clarification":"...one question..."}',
+  "- Only if the input is genuinely too ambiguous to file (you cannot tell what is meant), use the ask_clarification tool with ONE question instead of filing.",
 ].join("\n");
+
+const TOOLS = [
+  {
+    name: "file_folders",
+    description: "File the dictated thought as one or more atomic folders.",
+    input_schema: {
+      type: "object",
+      properties: {
+        folders: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              type: { type: "string", enum: ["concept", "project", "person", "note"] },
+              body: { type: "string" },
+            },
+            required: ["title", "type", "body"],
+          },
+        },
+      },
+      required: ["folders"],
+    },
+  },
+  {
+    name: "ask_clarification",
+    description: "Ask ONE clarifying question when the input is genuinely too ambiguous to file.",
+    input_schema: {
+      type: "object",
+      properties: { question: { type: "string" } },
+      required: ["question"],
+    },
+  },
+];
 
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
@@ -52,7 +85,7 @@ Deno.serve(async (req) => {
       : body.text;
     if (!input || !input.trim()) return json({ error: "Empty input" }, 400);
 
-    // 1) Claude drafts atomic folders
+    // 1) Claude drafts atomic folders - forced tool call, shape enforced by the API
     const ar = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -64,30 +97,38 @@ Deno.serve(async (req) => {
         model: MODEL,
         max_tokens: 2000,
         system: SYSTEM,
+        tools: TOOLS,
+        tool_choice: { type: "any" },
         messages: [{ role: "user", content: input }],
       }),
     });
     if (!ar.ok) return json({ error: "Claude API: " + (await ar.text()) }, 502);
     const am = await ar.json();
-    // Robust parse: find the text block, then extract JSON between first { and last }
-    // (handles markdown fences or prose around the JSON).
-    const textBlock = (am.content || []).find((c: { type: string }) => c.type === "text");
-    const raw = (textBlock && textBlock.text) || "";
-    const s = raw.indexOf("{");
-    const e = raw.lastIndexOf("}");
-    if (s === -1 || e === -1) return json({ error: "No JSON in drafting output: " + raw.slice(0, 200) }, 502);
-    let draft;
-    try {
-      draft = JSON.parse(raw.slice(s, e + 1));
-    } catch (_e) {
-      return json({ error: "Could not parse drafting output: " + raw.slice(0, 200) }, 502);
-    }
-    if (draft.clarification) return json({ clarification: draft.clarification });
 
-    const folders = draft.folders ?? [];
+    const toolUse = (am.content || []).find((c: { type: string }) => c.type === "tool_use");
+    let folders = [];
+    if (toolUse && toolUse.name === "ask_clarification") {
+      return json({ clarification: toolUse.input.question });
+    } else if (toolUse && toolUse.name === "file_folders") {
+      folders = toolUse.input.folders ?? [];
+    } else {
+      // Backstop: tolerant text parse (should not happen with tool_choice "any")
+      const textBlock = (am.content || []).find((c: { type: string }) => c.type === "text");
+      const raw = (textBlock && textBlock.text) || "";
+      const s = raw.indexOf("{");
+      const e = raw.lastIndexOf("}");
+      if (s === -1 || e === -1) return json({ error: "No usable drafting output" }, 502);
+      try {
+        const draft = JSON.parse(raw.slice(s, e + 1));
+        if (draft.clarification) return json({ clarification: draft.clarification });
+        folders = draft.folders ?? [];
+      } catch (_e) {
+        return json({ error: "Could not parse drafting output: " + raw.slice(0, 200) }, 502);
+      }
+    }
     if (!folders.length) return json({ error: "Nothing to file" }, 422);
 
-    // 2) voyage-4 embeddings (1024 dims)
+    // 2) voyage-4 embeddings (1024 dims, document side)
     const vr = await fetch("https://api.voyageai.com/v1/embeddings", {
       method: "POST",
       headers: {
