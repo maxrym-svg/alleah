@@ -1,0 +1,30 @@
+name: Deploy Edge Functions
+on:
+  push:
+    branches: [main]
+    paths:
+      - capture-function.ts
+      - ask-function.ts
+      - .github/workflows/deploy.yml
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: sphnmcjlxxzgovisgepo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Stage functions in CLI layout
+        run: |
+          mkdir -p supabase/functions/capture supabase/functions/ask
+          cp capture-function.ts supabase/functions/capture/index.ts
+          cp ask-function.ts supabase/functions/ask/index.ts
+      - name: Deploy capture
+        run: supabase functions deploy capture --project-ref $PROJECT_REF
+      - name: Deploy ask
+        run: supabase functions deploy ask --project-ref $PROJECT_REF
