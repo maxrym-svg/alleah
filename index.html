@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Alleah Memory</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1115">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0f1115;color:#e6e6e6;font:16px/1.5 -apple-system,system-ui,sans-serif}
+#root{max-width:640px;margin:0 auto;padding:16px 14px 48px}
+h1{font-size:20px;margin:12px 0 20px}
+textarea,input{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
+textarea{min-height:110px;resize:vertical}
+button{background:#3ecf8e;color:#08130d;border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:600;margin-top:10px;cursor:pointer}
+button.secondary{background:#2c313a;color:#e6e6e6}
+button:disabled{opacity:.5}
+.card{background:#1a1d23;border:1px solid #2c313a;border-radius:12px;padding:12px 14px;margin:10px 0}
+.type{display:inline-block;font-size:12px;color:#3ecf8e;border:1px solid #2c313a;border-radius:6px;padding:1px 8px;margin-left:8px;vertical-align:middle}
+.title{font-weight:600}
+.muted{color:#9aa3ad;font-size:14px}
+.err{color:#ff7b72}
+.ok{color:#3ecf8e}
+.row{display:flex;gap:8px}.row>*{flex:1}
+</style></head><body>
+<div id="root"></div>
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import React from "https://esm.sh/react@18";
+import { createRoot } from "https://esm.sh/react-dom@18/client";
+const h = React.createElement;
+const SB_URL = "https://sphnmcjlxxzgovisgepo.supabase.co";
+const supabase = createClient(SB_URL, "sb_publishable_vVfIttSbf_XLWKl2xahBWA_-sXU34L0");
+
+function Auth() {
+  const [email, setEmail] = React.useState('');
+  const [pw, setPw] = React.useState('');
+  const [msg, setMsg] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  async function go(mode) {
+    setBusy(true); setMsg('');
+    const fn = mode === 'up' ? supabase.auth.signUp({email:email, password:pw}) : supabase.auth.signInWithPassword({email:email, password:pw});
+    const res = await fn;
+    setBusy(false);
+    if (res.error) setMsg(res.error.message);
+    else if (mode === 'up' && !res.data.session) setMsg('Check your email to confirm, then sign in.');
+  }
+  return h('div', null,
+    h('h1', null, 'Alleah Memory'),
+    h('input', {placeholder:'email', type:'email', value:email, onChange:function(e){setEmail(e.target.value)}}),
+    h('div', {style:{height:'8px'}}),
+    h('input', {placeholder:'password (8+ chars)', type:'password', value:pw, onChange:function(e){setPw(e.target.value)}}),
+    h('div', {className:'row'},
+      h('button', {disabled:busy, onClick:function(){go('in')}}, 'Sign in'),
+      h('button', {className:'secondary', disabled:busy, onClick:function(){go('up')}}, 'Sign up')),
+    msg ? h('p', {className:'muted'}, msg) : null);
+}
+
+function FolderCard(f) {
+  return h('div', {className:'card', key:f.id},
+    h('span', {className:'title'}, f.title),
+    h('span', {className:'type'}, f.type),
+    h('p', {style:{margin:'6px 0 0'}}, f.body));
+}
+
+function Capture(props) {
+  const [text, setText] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [status, setStatus] = React.useState('');
+  const [saved, setSaved] = React.useState([]);
+  const [clarify, setClarify] = React.useState(null);
+  const [answer, setAnswer] = React.useState('');
+  const [recent, setRecent] = React.useState([]);
+  async function loadRecent() {
+    const r = await supabase.from('folders').select('id,title,type,body,created_at').order('created_at', {ascending:false}).limit(20);
+    if (!r.error) setRecent(r.data);
+  }
+  React.useEffect(function(){ loadRecent(); }, []);
+  async function file(payload) {
+    setBusy(true); setStatus('Filing...'); setSaved([]);
+    try {
+      const res = await fetch(SB_URL + '/functions/v1/capture', {
+        method:'POST',
+        headers:{'content-type':'application/json','authorization':'Bearer ' + props.session.access_token},
+        body: JSON.stringify(payload)});
+      const out = await res.json();
+      if (out.error) { setStatus('Error: ' + out.error); }
+      else if (out.clarification) { setClarify({q: out.clarification, original: payload.text || payload.original_text}); setStatus(''); }
+      else { setSaved(out.saved); setStatus('Filed ' + out.saved.length + ' folder' + (out.saved.length>1?'s':'')); setText(''); setClarify(null); setAnswer(''); loadRecent(); }
+    } catch (e) { setStatus('Error: ' + e); }
+    setBusy(false);
+  }
+  return h('div', null,
+    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+      h('h1', null, 'Alleah Memory'),
+      h('button', {className:'secondary', onClick:function(){supabase.auth.signOut()}}, 'Sign out')),
+    h('textarea', {placeholder:'What do you know? Dump a thought...', value:text, onChange:function(e){setText(e.target.value)}}),
+    h('button', {disabled:busy || !text.trim(), onClick:function(){file({text:text})}}, busy ? 'Filing...' : 'File it'),
+    status ? h('p', {className: status.indexOf('Error')===0 ? 'err' : 'ok'}, status) : null,
+    clarify ? h('div', {className:'card'},
+      h('p', {style:{marginTop:0}}, 'Quick question before filing: ' + clarify.q),
+      h('input', {placeholder:'your answer', value:answer, onChange:function(e){setAnswer(e.target.value)}}),
+      h('button', {disabled:busy || !answer.trim(), onClick:function(){file({original_text: clarify.original, clarification_answer: answer})}}, 'Answer + file')) : null,
+    saved.map(FolderCard),
+    h('h1', {style:{marginTop:'32px',fontSize:'16px'}}, 'Recent folders'),
+    recent.length ? recent.map(FolderCard) : h('p', {className:'muted'}, 'Nothing filed yet.'));
+}
+
+function App() {
+  const [session, setSession] = React.useState(undefined);
+  React.useEffect(function() {
+    supabase.auth.getSession().then(function(r){ setSession(r.data.session); });
+    const sub = supabase.auth.onAuthStateChange(function(_e, s){ setSession(s); });
+    return function(){ sub.data.subscription.unsubscribe(); };
+  }, []);
+  if (session === undefined) return h('p', {className:'muted'}, 'Loading...');
+  return session ? h(Capture, {session: session}) : h(Auth);
+}
+createRoot(document.getElementById('root')).render(h(App));
+</script></body></html>
