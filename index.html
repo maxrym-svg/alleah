@@ -92,9 +92,6 @@ function Capture(props) {
     setBusy(false);
   }
   return h('div', null,
-    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-      h('h1', null, 'Alleah Memory'),
-      h('button', {className:'secondary', onClick:function(){supabase.auth.signOut()}}, 'Sign out')),
     h('textarea', {placeholder:'What do you know? Dump a thought...', value:text, onChange:function(e){setText(e.target.value)}}),
     h('button', {disabled:busy || !text.trim(), onClick:function(){file({text:text})}}, busy ? 'Filing...' : 'File it'),
     status ? h('p', {className: status.indexOf('Error')===0 ? 'err' : 'ok'}, status) : null,
@@ -107,6 +104,52 @@ function Capture(props) {
     recent.length ? recent.map(FolderCard) : h('p', {className:'muted'}, 'Nothing filed yet.'));
 }
 
+function Ask(props) {
+  const [q, setQ] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [status, setStatus] = React.useState('');
+  const [answer, setAnswer] = React.useState('');
+  const [used, setUsed] = React.useState([]);
+  async function ask() {
+    setBusy(true); setStatus('Searching your memory...'); setAnswer(''); setUsed([]);
+    try {
+      const res = await fetch(SB_URL + '/functions/v1/ask', {
+        method:'POST',
+        headers:{'content-type':'application/json','authorization':'Bearer ' + props.session.access_token},
+        body: JSON.stringify({question: q})});
+      const out = await res.json();
+      if (out.error) { setStatus('Error: ' + out.error); }
+      else { setAnswer(out.answer); setUsed(out.folders || []); setStatus(''); }
+    } catch (e) { setStatus('Error: ' + e); }
+    setBusy(false);
+  }
+  return h('div', null,
+    h('textarea', {style:{minHeight:'70px'}, placeholder:'Ask your memory a question...', value:q, onChange:function(e){setQ(e.target.value)}}),
+    h('button', {disabled:busy || !q.trim(), onClick:ask}, busy ? 'Thinking...' : 'Ask'),
+    status ? h('p', {className: status.indexOf('Error')===0 ? 'err' : 'muted'}, status) : null,
+    answer ? h('div', {className:'card', style:{whiteSpace:'pre-wrap'}}, answer) : null,
+    used.length ? h('div', null,
+      h('p', {className:'muted', style:{marginBottom:0}}, 'Folders used:'),
+      used.map(function(f){ return h('div', {className:'card', key:f.id},
+        h('span', {className:'muted'}, '[' + f.n + '] '),
+        h('span', {className:'title'}, f.title),
+        h('span', {className:'type'}, f.type),
+        h('span', {className:'muted'}, '  ' + Math.round(f.similarity * 100) + '% match')); })) : null);
+}
+
+function Main(props) {
+  const [tab, setTab] = React.useState('capture');
+  return h('div', null,
+    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+      h('h1', null, 'Alleah Memory'),
+      h('button', {className:'secondary', onClick:function(){supabase.auth.signOut()}}, 'Sign out')),
+    h('div', {className:'row'},
+      h('button', {className: tab==='capture' ? '' : 'secondary', onClick:function(){setTab('capture')}}, 'Capture'),
+      h('button', {className: tab==='ask' ? '' : 'secondary', onClick:function(){setTab('ask')}}, 'Ask')),
+    h('div', {style:{height:'12px'}}),
+    tab==='capture' ? h(Capture, {session: props.session}) : h(Ask, {session: props.session}));
+}
+
 function App() {
   const [session, setSession] = React.useState(undefined);
   React.useEffect(function() {
@@ -115,7 +158,7 @@ function App() {
     return function(){ sub.data.subscription.unsubscribe(); };
   }, []);
   if (session === undefined) return h('p', {className:'muted'}, 'Loading...');
-  return session ? h(Capture, {session: session}) : h(Auth);
+  return session ? h(Main, {session: session}) : h(Auth);
 }
 createRoot(document.getElementById('root')).render(h(App));
 </script></body></html>
