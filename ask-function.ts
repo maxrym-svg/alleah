@@ -1,4 +1,4 @@
-// Edge Function: ask (v2 - tunable similarity threshold + score logging)
+// Edge Function: ask (v3 - attribution, not amnesia: general knowledge allowed, always labeled)
 // Question -> voyage-4 query embedding -> pgvector search (match_folders, RLS applies)
 // -> Claude answers grounded ONLY in retrieved folders -> answer + which folders were used.
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -78,27 +78,24 @@ Deno.serve(async (req) => {
     const matches = all.filter(
       (m: { similarity: number }) => m.similarity >= SIM_THRESHOLD,
     );
-    if (!matches.length) {
-      return json({
-        answer: all.length
-          ? "Nothing in your memory cleared the relevance bar for this question."
-          : "Your memory has no folders yet, so I have nothing to answer from.",
-        folders: [],
-      });
-    }
 
-    // 3) Claude answers grounded ONLY in the retrieved folders
-    const context = matches.map(
-      (m: { id: string; title: string; type: string; body: string }, i: number) =>
-        "[" + (i + 1) + "] " + m.title + " (" + m.type + ")\n" + m.body,
-    ).join("\n\n");
+    // 3) Claude answers - memory first (cited), general knowledge allowed but always labeled
+    const context = matches.length
+      ? matches.map(
+        (m: { id: string; title: string; type: string; body: string }, i: number) =>
+          "[" + (i + 1) + "] " + m.title + " (" + m.type + ")\n" + m.body,
+      ).join("\n\n")
+      : "(no relevant folders found for this question)";
 
     const SYSTEM = [
-      "You answer questions using ONLY the numbered memory folders provided.",
-      "These folders are the user's own captured knowledge - treat them as the source of truth.",
+      "You are Alleah, Max's personal memory assistant. His memory folders model what HE knows - they are not the boundary of what YOU know.",
+      "Answer in two clearly separated registers:",
+      "1. FROM HIS MEMORY - claims grounded in the numbered folders. Cite inline like [1], [2].",
+      "2. GENERAL KNOWLEDGE - your broader knowledge, used freely but ALWAYS explicitly marked as such (e.g. 'You haven't filed anything on this, but generally...').",
       "Rules:",
-      "- Ground every claim in the folders. Reference them inline like [1], [2].",
-      "- If the folders do not contain the answer, say plainly that this is not in the memory yet - do NOT answer from general knowledge.",
+      "- Never present general knowledge as if it came from his folders. Unlabeled sourcing is the one unforgivable failure; knowing things is not.",
+      "- If nothing relevant is filed: say so plainly, answer anyway from general knowledge (marked), and offer to file his own take on it.",
+      "- Where genuinely interesting, briefly note gaps or odd shapes in his filed knowledge - an observant colleague, not a nagging audit.",
       "- Be concise and direct.",
     ].join("\n");
 
