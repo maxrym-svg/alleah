@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.1 - file silently, ask to fill gaps)
+// Edge Function: ask (v4.2 - solicited/volunteered tagging; occasion guard gates strength only, never filing)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -29,7 +29,8 @@ const ANSWER_SYSTEM = [
   "- Never present general knowledge as if it came from his folders. Unlabeled sourcing is the one unforgivable failure; knowing things is not.",
   "- If nothing relevant is filed on a topic he asks about: say so plainly and answer anyway from general knowledge (marked).",
   "- Filing is automatic and silent. NEVER ask permission to file, never announce that you will file something, never ask him to repeat things for filing.",
-  "- When he shares something with an obvious gap (an unnamed person, an unstated reason, a missing detail), respond naturally and ask ONE curious follow-up that fills it - like 'That's lovely - what's her name?'. His answer will be remembered automatically. A curious friend, not an interrogator: one question max, and only when the gap is genuinely worth filling.",
+  "- Follow-up questions come from genuine conversational interest in what he just said - like 'That's lovely - what's her name?' - NEVER from a checklist. There is no canonical set of fields for a person, project, or anything else; memory is as thin or thick as conversation makes it. Never track completeness, never work toward filling a record's 'missing' attributes.",
+  "- At most ONE follow-up, then let it go. If he never gives a detail, be comfortable never knowing it. Never re-ask something he declined or ignored. A friend who asks one interested question is warm; one who fills every blank is doing an intake interview.",
   "- Be concise, direct, conversational.",
 ].join("\n");
 
@@ -131,6 +132,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "- Preserve Max's actual views and facts. No filler, no invention.",
         "- File what IS said. Missing details (a name, a date) are never a reason to withhold filing - state the fact without the unknown, e.g. 'Max has a sister (name not yet known) who graduates today.' Later answers will refine it.",
         "- epistemic: 'explained' if he explains it in his own words or uses it as analogy; 'stated' if he asserts it with reason; 'hedged' if partial, exploring, or thinking out loud. Exploring is NOT believing - bias toward hedged when in doubt.",
+        "- solicited: true when this material answers a question the assistant just asked (check the previous assistant turn); false when Max raised it himself, unprompted. Volunteered material is evidence of what's on his mind; solicited material mostly reflects what the assistant chose to ask.",
         "- If on reflection there is no real idea here, use nothing_to_file.",
       ].join("\n"),
       tools: [
@@ -150,8 +152,9 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
                     type: { type: "string", enum: ["concept", "project", "person", "note"] },
                     body: { type: "string" },
                     epistemic: { type: "string", enum: ["hedged", "stated", "explained"] },
+                    solicited: { type: "boolean" },
                   },
-                  required: ["title", "type", "body", "epistemic"],
+                  required: ["title", "type", "body", "epistemic", "solicited"],
                 },
               },
             },
@@ -168,7 +171,12 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       console.log("draft", JSON.stringify({ outcome: "nothing_to_file" }));
       return;
     }
-    const drafts = (drafted.input.folders ?? []) as { title: string; type: string; body: string; epistemic: string }[];
+    const drafts = (drafted.input.folders ?? []) as { title: string; type: string; body: string; epistemic: string; solicited: boolean }[];
+    console.log("capture_stats", JSON.stringify({
+      drafts: drafts.length,
+      volunteered: drafts.filter((d) => !d.solicited).length,
+      solicited: drafts.filter((d) => d.solicited).length,
+    }));
 
     // --- Dedup with five outcomes (B4 + same-occasion guard) ---
     const userTurnTexts = turns.filter((t) => t.role === "user").map((t) => t.content);
@@ -185,7 +193,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       // Outcome: NEW (nothing near the net)
       if (!best || best.similarity < CAND_THRESHOLD) {
         await fileNew(supabase, draft, emb, newest);
-        console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "new" }));
+        console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "new", solicited: !!draft.solicited }));
         continue;
       }
 
@@ -195,18 +203,19 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       if (full.error) { console.log("dedup_fetch_error", full.error.message); continue; }
       const existing = full.data;
 
-      // Outcome: SAME OCCASION - no bump, no write, no classifier call
+      // Same-occasion detection gates the STRENGTH BUMP only - it never blocks filing
+      // or classification. (A time-based filing veto silently swallowed distinct new
+      // ideas that loosely resembled a just-touched folder.)
       const src = (existing.source || "").slice(0, 400);
       const overlaps = src && userTurnTexts.some((t) =>
         src.includes(t.slice(0, 80)) || t.includes(src.slice(0, 80))
       );
       const ageMin = (Date.now() - new Date(existing.updated_at).getTime()) / 60000;
-      if (overlaps || ageMin < SESSION_GUARD_MIN) {
-        console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "same_occasion", folder: existing.id }));
-        continue;
-      }
+      const sameOccasion = !!overlaps || ageMin < SESSION_GUARD_MIN;
+      // Conviction = repeated on separate occasions, volunteered - not extracted.
+      const countsAsConviction = !sameOccasion && !draft.solicited;
 
-      // Outcomes: echo / refinement / contradiction / new (Haiku is the judge)
+      // Outcomes: echo / refinement / contradiction / new (Haiku is always the judge)
       const cls = await anthropic({
         model: TRIAGE_MODEL,
         max_tokens: 400,
@@ -233,17 +242,30 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         messages: [{ role: "user", content: "EXISTING folder:\n" + existing.title + "\n" + existing.body + "\n\nNEW draft:\n" + draft.title + "\n" + draft.body }],
       });
       const verdict = toolUse(cls)!.input as { outcome: string; rationale: string };
-      console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: verdict.outcome, folder: existing.id, rationale: verdict.rationale.slice(0, 120) }));
+      console.log("outcome", JSON.stringify({
+        draft: draft.title.slice(0, 50), outcome: verdict.outcome, folder: existing.id,
+        solicited: !!draft.solicited, same_occasion: sameOccasion, bumps: countsAsConviction,
+        rationale: verdict.rationale.slice(0, 120),
+      }));
 
       const meta = existing.metadata || {};
       if (verdict.outcome === "echo") {
-        await supabase.from("folders")
-          .update({ metadata: { ...meta, strength: (meta.strength || 1) + 1 } })
-          .eq("id", existing.id);
+        if (countsAsConviction) {
+          await supabase.from("folders")
+            .update({ metadata: { ...meta, strength: (meta.strength || 1) + 1 } })
+            .eq("id", existing.id);
+        }
+        // same-occasion or solicited echo: no write at all
       } else if (verdict.outcome === "refinement") {
+        // Refinements always update content (solicited answers can thicken folders);
+        // only conviction-grade repeats bump strength.
         const [newEmb] = await voyage([existing.title + "\n" + draft.body], "document");
         await supabase.from("folders")
-          .update({ body: draft.body, embedding: newEmb, metadata: { ...meta, strength: (meta.strength || 1) + 1, epistemic: draft.epistemic } })
+          .update({
+            body: draft.body,
+            embedding: newEmb,
+            metadata: { ...meta, strength: (meta.strength || 1) + (countsAsConviction ? 1 : 0), epistemic: draft.epistemic },
+          })
           .eq("id", existing.id);
       } else if (verdict.outcome === "contradiction") {
         const created = await fileNew(supabase, draft, emb, newest);
@@ -269,7 +291,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
 }
 
 // deno-lint-ignore no-explicit-any
-async function fileNew(supabase: any, draft: { title: string; type: string; body: string; epistemic: string }, emb: number[], sourceText: string) {
+async function fileNew(supabase: any, draft: { title: string; type: string; body: string; epistemic: string; solicited?: boolean }, emb: number[], sourceText: string) {
   const valid = ["concept", "project", "person", "note"];
   const ins = await supabase.from("folders").insert({
     title: draft.title,
@@ -277,7 +299,7 @@ async function fileNew(supabase: any, draft: { title: string; type: string; body
     body: draft.body,
     embedding: emb,
     source: sourceText,
-    metadata: { epistemic: draft.epistemic, strength: 1, origin: "ambient" },
+    metadata: { epistemic: draft.epistemic, strength: 1, origin: "ambient", solicited: !!draft.solicited },
   }).select("id").single();
   if (ins.error) { console.log("file_error", ins.error.message); return null; }
   return ins.data;
