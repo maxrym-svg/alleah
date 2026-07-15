@@ -2,27 +2,34 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Alleah Memory</title>
+<title>Alleah</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0f1115">
 <style>
 :root{color-scheme:dark}
 *{box-sizing:border-box}
+html,body{height:100%}
 body{margin:0;background:#0f1115;color:#e6e6e6;font:16px/1.5 -apple-system,system-ui,sans-serif}
-#root{max-width:640px;margin:0 auto;padding:16px 14px 48px}
-h1{font-size:20px;margin:12px 0 20px}
-textarea,input{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
-textarea{min-height:110px;resize:vertical}
-button{background:#3ecf8e;color:#08130d;border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:600;margin-top:10px;cursor:pointer}
-button.secondary{background:#2c313a;color:#e6e6e6}
+#root{height:100%;max-width:680px;margin:0 auto;display:flex;flex-direction:column}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px 4px}
+h1{font-size:18px;margin:0}
+#thread{flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:85%;padding:10px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:#3ecf8e;color:#08130d;border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;background:#1a1d23;border:1px solid #2c313a;border-bottom-left-radius:4px}
+.cites{align-self:flex-start;font-size:12px;color:#9aa3ad;margin-top:-4px;padding:0 6px}
+.composer{display:flex;gap:8px;padding:10px 14px calc(14px + env(safe-area-inset-bottom))}
+textarea{flex:1;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:120px}
+button{background:#3ecf8e;color:#08130d;border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
+button.secondary{background:#2c313a;color:#e6e6e6;font-size:13px;padding:6px 12px;border-radius:8px}
 button:disabled{opacity:.5}
-.card{background:#1a1d23;border:1px solid #2c313a;border-radius:12px;padding:12px 14px;margin:10px 0}
-.type{display:inline-block;font-size:12px;color:#3ecf8e;border:1px solid #2c313a;border-radius:6px;padding:1px 8px;margin-left:8px;vertical-align:middle}
-.title{font-weight:600}
-.muted{color:#9aa3ad;font-size:14px}
-.err{color:#ff7b72}
-.ok{color:#3ecf8e}
+input{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
+.auth{padding:16px 14px}
+.auth button{padding:12px 18px;margin-top:10px}
 .row{display:flex;gap:8px}.row>*{flex:1}
+.muted{color:#9aa3ad;font-size:14px}
+.err{color:#ff7b72;font-size:14px;padding:0 14px}
+.typing{align-self:flex-start;color:#9aa3ad;font-size:14px;padding:0 6px}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -32,6 +39,7 @@ import { createRoot } from "https://esm.sh/react-dom@18/client";
 const h = React.createElement;
 const SB_URL = "https://sphnmcjlxxzgovisgepo.supabase.co";
 const supabase = createClient(SB_URL, "sb_publishable_vVfIttSbf_XLWKl2xahBWA_-sXU34L0");
+const HISTORY_KEY = "alleah_chat_v1";
 
 function Auth() {
   const [email, setEmail] = React.useState('');
@@ -40,125 +48,91 @@ function Auth() {
   const [busy, setBusy] = React.useState(false);
   async function go(mode) {
     setBusy(true); setMsg('');
-    const fn = mode === 'up' ? supabase.auth.signUp({email:email, password:pw}) : supabase.auth.signInWithPassword({email:email, password:pw});
-    const res = await fn;
+    const res = mode === 'up'
+      ? await supabase.auth.signUp({email, password: pw})
+      : await supabase.auth.signInWithPassword({email, password: pw});
     setBusy(false);
     if (res.error) setMsg(res.error.message);
     else if (mode === 'up' && !res.data.session) setMsg('Check your email to confirm, then sign in.');
   }
-  return h('div', null,
-    h('h1', null, 'Alleah Memory'),
-    h('input', {placeholder:'email', type:'email', value:email, onChange:function(e){setEmail(e.target.value)}}),
+  return h('div', {className:'auth'},
+    h('h1', null, 'Alleah'),
+    h('div', {style:{height:'12px'}}),
+    h('input', {placeholder:'email', type:'email', value:email, onChange:e=>setEmail(e.target.value)}),
     h('div', {style:{height:'8px'}}),
-    h('input', {placeholder:'password (8+ chars)', type:'password', value:pw, onChange:function(e){setPw(e.target.value)}}),
+    h('input', {placeholder:'password', type:'password', value:pw, onChange:e=>setPw(e.target.value)}),
     h('div', {className:'row'},
-      h('button', {disabled:busy, onClick:function(){go('in')}}, 'Sign in'),
-      h('button', {className:'secondary', disabled:busy, onClick:function(){go('up')}}, 'Sign up')),
+      h('button', {disabled:busy, onClick:()=>go('in')}, 'Sign in'),
+      h('button', {className:'secondary', disabled:busy, onClick:()=>go('up')}, 'Sign up')),
     msg ? h('p', {className:'muted'}, msg) : null);
 }
 
-function FolderCard(f) {
-  return h('div', {className:'card', key:f.id},
-    h('span', {className:'title'}, f.title),
-    h('span', {className:'type'}, f.type),
-    h('p', {style:{margin:'6px 0 0'}}, f.body));
-}
-
-function Capture(props) {
+function Chat(props) {
+  const [messages, setMessages] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+  });
   const [text, setText] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [status, setStatus] = React.useState('');
-  const [saved, setSaved] = React.useState([]);
-  const [clarify, setClarify] = React.useState(null);
-  const [answer, setAnswer] = React.useState('');
-  const [recent, setRecent] = React.useState([]);
-  async function loadRecent() {
-    const r = await supabase.from('folders').select('id,title,type,body,created_at').order('created_at', {ascending:false}).limit(20);
-    if (!r.error) setRecent(r.data);
-  }
-  React.useEffect(function(){ loadRecent(); }, []);
-  async function file(payload) {
-    setBusy(true); setStatus('Filing...'); setSaved([]);
-    try {
-      const res = await fetch(SB_URL + '/functions/v1/capture', {
-        method:'POST',
-        headers:{'content-type':'application/json','authorization':'Bearer ' + props.session.access_token},
-        body: JSON.stringify(payload)});
-      const out = await res.json();
-      if (out.error) { setStatus('Error: ' + out.error); }
-      else if (out.clarification) { setClarify({q: out.clarification, original: payload.text || payload.original_text}); setStatus(''); }
-      else { setSaved(out.saved); setStatus('Filed ' + out.saved.length + ' folder' + (out.saved.length>1?'s':'')); setText(''); setClarify(null); setAnswer(''); loadRecent(); }
-    } catch (e) { setStatus('Error: ' + e); }
-    setBusy(false);
-  }
-  return h('div', null,
-    h('textarea', {placeholder:'What do you know? Dump a thought...', value:text, onChange:function(e){setText(e.target.value)}}),
-    h('button', {disabled:busy || !text.trim(), onClick:function(){file({text:text})}}, busy ? 'Filing...' : 'File it'),
-    status ? h('p', {className: status.indexOf('Error')===0 ? 'err' : 'ok'}, status) : null,
-    clarify ? h('div', {className:'card'},
-      h('p', {style:{marginTop:0}}, 'Quick question before filing: ' + clarify.q),
-      h('input', {placeholder:'your answer', value:answer, onChange:function(e){setAnswer(e.target.value)}}),
-      h('button', {disabled:busy || !answer.trim(), onClick:function(){file({original_text: clarify.original, clarification_answer: answer})}}, 'Answer + file')) : null,
-    saved.map(FolderCard),
-    h('h1', {style:{marginTop:'32px',fontSize:'16px'}}, 'Recent folders'),
-    recent.length ? recent.map(FolderCard) : h('p', {className:'muted'}, 'Nothing filed yet.'));
-}
+  const [err, setErr] = React.useState('');
+  const endRef = React.useRef(null);
+  React.useEffect(() => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-60)));
+    endRef.current && endRef.current.scrollIntoView({behavior:'smooth'});
+  }, [messages, busy]);
 
-function Ask(props) {
-  const [q, setQ] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
-  const [status, setStatus] = React.useState('');
-  const [answer, setAnswer] = React.useState('');
-  const [used, setUsed] = React.useState([]);
-  async function ask() {
-    setBusy(true); setStatus('Searching your memory...'); setAnswer(''); setUsed([]);
+  async function send() {
+    const content = text.trim();
+    if (!content || busy) return;
+    setErr(''); setText('');
+    const next = [...messages, {role:'user', content}];
+    setMessages(next); setBusy(true);
     try {
       const res = await fetch(SB_URL + '/functions/v1/ask', {
         method:'POST',
         headers:{'content-type':'application/json','authorization':'Bearer ' + props.session.access_token},
-        body: JSON.stringify({question: q})});
+        body: JSON.stringify({messages: next.slice(-10).map(m => ({role: m.role, content: m.content}))})
+      });
       const out = await res.json();
-      if (out.error) { setStatus('Error: ' + out.error); }
-      else { setAnswer(out.answer); setUsed(out.folders || []); setStatus(''); }
-    } catch (e) { setStatus('Error: ' + e); }
+      if (out.error) setErr('Error: ' + out.error);
+      else setMessages(m => [...m, {role:'assistant', content: out.answer, folders: out.folders || []}]);
+    } catch (e) { setErr('Error: ' + e); }
     setBusy(false);
   }
-  return h('div', null,
-    h('textarea', {style:{minHeight:'70px'}, placeholder:'Ask your memory a question...', value:q, onChange:function(e){setQ(e.target.value)}}),
-    h('button', {disabled:busy || !q.trim(), onClick:ask}, busy ? 'Thinking...' : 'Ask'),
-    status ? h('p', {className: status.indexOf('Error')===0 ? 'err' : 'muted'}, status) : null,
-    answer ? h('div', {className:'card', style:{whiteSpace:'pre-wrap'}}, answer) : null,
-    used.length ? h('div', null,
-      h('p', {className:'muted', style:{marginBottom:0}}, 'Folders used:'),
-      used.map(function(f){ return h('div', {className:'card', key:f.id},
-        h('span', {className:'muted'}, '[' + f.n + '] '),
-        h('span', {className:'title'}, f.title),
-        h('span', {className:'type'}, f.type),
-        h('span', {className:'muted'}, '  ' + Math.round(f.similarity * 100) + '% match')); })) : null);
-}
 
-function Main(props) {
-  const [tab, setTab] = React.useState('capture');
-  return h('div', null,
-    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-      h('h1', null, 'Alleah Memory'),
-      h('button', {className:'secondary', onClick:function(){supabase.auth.signOut()}}, 'Sign out')),
-    h('div', {className:'row'},
-      h('button', {className: tab==='capture' ? '' : 'secondary', onClick:function(){setTab('capture')}}, 'Capture'),
-      h('button', {className: tab==='ask' ? '' : 'secondary', onClick:function(){setTab('ask')}}, 'Ask')),
-    h('div', {style:{height:'12px'}}),
-    tab==='capture' ? h(Capture, {session: props.session}) : h(Ask, {session: props.session}));
+  function onKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  return h(React.Fragment, null,
+    h('header', null,
+      h('h1', null, 'Alleah'),
+      h('div', {style:{display:'flex',gap:'8px'}},
+        h('button', {className:'secondary', onClick:()=>{ if(confirm('Clear this conversation? (Your memory folders are not affected.)')) setMessages([]); }}, 'New chat'),
+        h('button', {className:'secondary', onClick:()=>supabase.auth.signOut()}, 'Sign out'))),
+    h('div', {id:'thread'},
+      messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
+      messages.map((m, i) => h(React.Fragment, {key:i},
+        h('div', {className:'msg ' + m.role}, m.content),
+        m.folders && m.folders.length
+          ? h('div', {className:'cites'}, 'memory: ' + m.folders.map(f => '[' + f.n + '] ' + f.title).join('  '))
+          : null)),
+      busy ? h('div', {className:'typing'}, 'thinking...') : null,
+      h('div', {ref:endRef})),
+    err ? h('p', {className:'err'}, err) : null,
+    h('div', {className:'composer'},
+      h('textarea', {placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
+      h('button', {disabled:busy || !text.trim(), onClick:send}, 'Send')));
 }
 
 function App() {
   const [session, setSession] = React.useState(undefined);
-  React.useEffect(function() {
-    supabase.auth.getSession().then(function(r){ setSession(r.data.session); });
-    const sub = supabase.auth.onAuthStateChange(function(_e, s){ setSession(s); });
-    return function(){ sub.data.subscription.unsubscribe(); };
+  React.useEffect(() => {
+    supabase.auth.getSession().then(r => setSession(r.data.session));
+    const sub = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.data.subscription.unsubscribe();
   }, []);
-  if (session === undefined) return h('p', {className:'muted'}, 'Loading...');
-  return session ? h(Main, {session: session}) : h(Auth);
+  if (session === undefined) return h('p', {className:'muted', style:{padding:'16px'}}, 'Loading...');
+  return session ? h(Chat, {session}) : h(Auth);
 }
 createRoot(document.getElementById('root')).render(h(App));
 </script></body></html>
