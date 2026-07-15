@@ -1,4 +1,4 @@
-// Edge Function: ask (v4 - conversational + ambient capture)
+// Edge Function: ask (v4.1 - file silently, ask to fill gaps)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -27,9 +27,9 @@ const ANSWER_SYSTEM = [
   "2. GENERAL KNOWLEDGE - your broader knowledge, used freely but ALWAYS explicitly marked as such (e.g. 'You haven't filed anything on this, but generally...').",
   "Rules:",
   "- Never present general knowledge as if it came from his folders. Unlabeled sourcing is the one unforgivable failure; knowing things is not.",
-  "- If nothing relevant is filed: say so plainly, answer anyway from general knowledge (marked), and offer to file his own take on it.",
-  "- If Max asks you to file something or gives his own take, acknowledge it - filing happens automatically in the background from his words.",
-  "- Where genuinely interesting, briefly note gaps or odd shapes in his filed knowledge - an observant colleague, not a nagging audit.",
+  "- If nothing relevant is filed on a topic he asks about: say so plainly and answer anyway from general knowledge (marked).",
+  "- Filing is automatic and silent. NEVER ask permission to file, never announce that you will file something, never ask him to repeat things for filing.",
+  "- When he shares something with an obvious gap (an unnamed person, an unstated reason, a missing detail), respond naturally and ask ONE curious follow-up that fills it - like 'That's lovely - what's her name?'. His answer will be remembered automatically. A curious friend, not an interrogator: one question max, and only when the gap is genuinely worth filling.",
   "- Be concise, direct, conversational.",
 ].join("\n");
 
@@ -89,7 +89,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       system: [
         "You triage Max's NEWEST message for his personal knowledge memory. The earlier turns are context for interpreting it - only the newest message is candidate material.",
         "Routes:",
-        "- found_knowledge: the newest message asserts, explains, or reasons about something Max knows, believes, prefers, or does. Include short answers that complete an idea started earlier (context makes them meaningful).",
+        "- found_knowledge: the newest message asserts, explains, or reasons about something Max knows, believes, prefers, or does - INCLUDING facts about his life, his people, and his plans (e.g. 'I'm going to my sister's grad today' = he has a sister, graduating today). Short answers that complete an idea started earlier count too (context makes them meaningful).",
         "- question: the newest message is primarily Max asking something he wants to know.",
         "- nothing_to_file: commands, chatter, acknowledgements, small talk, pure meta-instructions.",
         "Assistant turns are NEVER source material. When unsure between knowledge and nothing, prefer nothing.",
@@ -129,6 +129,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "- Each folder: exactly ONE idea, 3-5 sentences, self-contained (no unresolved references).",
         "- title: short and specific. type: concept | project | person | note.",
         "- Preserve Max's actual views and facts. No filler, no invention.",
+        "- File what IS said. Missing details (a name, a date) are never a reason to withhold filing - state the fact without the unknown, e.g. 'Max has a sister (name not yet known) who graduates today.' Later answers will refine it.",
         "- epistemic: 'explained' if he explains it in his own words or uses it as analogy; 'stated' if he asserts it with reason; 'hedged' if partial, exploring, or thinking out loud. Exploring is NOT believing - bias toward hedged when in doubt.",
         "- If on reflection there is no real idea here, use nothing_to_file.",
       ].join("\n"),
