@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.3 - dual-flag triage: exploration files as provisional knowledge; questions always log as gaps)
+// Edge Function: ask (v4.4 - connection engine Phase A: Flow 1 incremental linking)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -19,6 +19,10 @@ const SIM_THRESHOLD = Number(Deno.env.get("SIM_THRESHOLD") ?? "0") || 0; // answ
 const MATCH_COUNT = Number(Deno.env.get("MATCH_COUNT") ?? "8") || 8;
 const CAND_THRESHOLD = Number(Deno.env.get("CAND_THRESHOLD") ?? "0.4") || 0.4; // dedup net (permissive)
 const SESSION_GUARD_MIN = Number(Deno.env.get("SESSION_GUARD_MIN") ?? "60") || 60; // same-occasion window
+// Connection engine (Flow 1) - three-tier funnel thresholds, tunable via secrets
+const HIGH_SIM = Number(Deno.env.get("HIGH_SIM") ?? "0.75") || 0.75; // above: auto-file, no model call
+const LOW_SIM = Number(Deno.env.get("LOW_SIM") ?? "0.35") || 0.35; // below: auto-drop, no model call
+const SCREENER = Deno.env.get("SCREENER") ?? "haiku"; // swappable seat: haiku now, local model later
 
 const ANSWER_SYSTEM = [
   "You are Alleah, Max's personal memory assistant. His memory folders model what HE knows - they are not the boundary of what YOU know.",
@@ -215,8 +219,9 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
 
       // Outcome: NEW (nothing near the net)
       if (!best || best.similarity < CAND_THRESHOLD) {
-        await fileNew(supabase, draft, emb, newest);
+        const created = await fileNew(supabase, draft, emb, newest);
         console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "new", solicited: !!draft.solicited, mode: draft.exploration ? "exploration" : "belief" }));
+        if (created) await linkNewFolder(supabase, created.id, draft, emb);
         continue;
       }
 
@@ -306,9 +311,11 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
             confidence: best.similarity,
             rationale: verdict.rationale,
           });
+          await linkNewFolder(supabase, created.id, draft, emb);
         }
       } else {
-        await fileNew(supabase, draft, emb, newest);
+        const created = await fileNew(supabase, draft, emb, newest);
+        if (created) await linkNewFolder(supabase, created.id, draft, emb);
       }
     }
   } catch (e) {
@@ -331,6 +338,133 @@ async function fileNew(supabase: any, draft: { title: string; type: string; body
   }).select("id").single();
   if (ins.error) { console.log("file_error", ins.error.message); return null; }
   return ins.data;
+}
+
+// ============ Connection engine - Flow 1 (incremental, per new folder) ============
+
+// The swappable seat. Three-bucket surface sort ONLY - deep judgment lives in verifyRelated.
+// Today: Haiku. Later: a local model behind the same signature, selected by the SCREENER secret.
+async function screen(
+  a: { title: string; body: string },
+  b: { title: string; body: string },
+): Promise<{ bucket: string; confidence: number }> {
+  const r = await anthropic({
+    model: TRIAGE_MODEL,
+    max_tokens: 200,
+    system: [
+      "Sort the relatedness of two short personal-knowledge notes into exactly one bucket.",
+      "- obvious: plainly about related things (same topic, domain, person, or activity).",
+      "- nothing: plainly unrelated.",
+      "- maybe: unclear either way.",
+      "Fast surface judgment only. Do NOT reason about deep or structural parallels - that is another component's job.",
+    ].join("\n"),
+    tools: [{
+      name: "sort",
+      description: "Sort the pair.",
+      input_schema: {
+        type: "object",
+        properties: {
+          bucket: { type: "string", enum: ["obvious", "maybe", "nothing"] },
+          confidence: { type: "number" },
+        },
+        required: ["bucket", "confidence"],
+      },
+    }],
+    tool_choice: { type: "tool", name: "sort" },
+    messages: [{ role: "user", content: "A: " + a.title + "\n" + a.body + "\n\nB: " + b.title + "\n" + b.body }],
+  });
+  const out = toolUse(r)?.input as { bucket: string; confidence: number } | undefined;
+  return { bucket: out?.bucket ?? "maybe", confidence: out?.confidence ?? 0.5 };
+}
+
+// Cloud verify - the expensive tier. Touches only the screener's maybes.
+async function verifyRelated(
+  a: { title: string; body: string },
+  b: { title: string; body: string },
+): Promise<{ related: boolean; confidence: number; rationale: string }> {
+  const r = await anthropic({
+    model: ANSWER_MODEL,
+    max_tokens: 300,
+    system: "Judge whether two notes from Max's personal knowledge memory are meaningfully related within the same domain (topic, activity, person, practical connection). This is within-domain judgment - NOT deep cross-domain analogy hunting.",
+    tools: [{
+      name: "judge",
+      description: "Judge the pair.",
+      input_schema: {
+        type: "object",
+        properties: {
+          related: { type: "boolean" },
+          confidence: { type: "number" },
+          rationale: { type: "string" },
+        },
+        required: ["related", "confidence", "rationale"],
+      },
+    }],
+    tool_choice: { type: "tool", name: "judge" },
+    messages: [{ role: "user", content: "A: " + a.title + "\n" + a.body + "\n\nB: " + b.title + "\n" + b.body }],
+  });
+  return (toolUse(r)?.input as { related: boolean; confidence: number; rationale: string })
+    ?? { related: false, confidence: 0, rationale: "no output" };
+}
+
+// Undirected 'related' links are normalized low-id -> high-id; unique constraint
+// makes re-inserts no-ops, which is what keeps passes idempotent.
+// deno-lint-ignore no-explicit-any
+async function fileLink(supabase: any, idA: string, idB: string, confidence: number, rationale: string) {
+  const [s, t] = idA < idB ? [idA, idB] : [idB, idA];
+  const ins = await supabase.from("links").upsert({
+    source_id: s,
+    target_id: t,
+    relationship: "related",
+    weight: 1,
+    origin: "auto",
+    is_leap: false,
+    verified: true,
+    confidence,
+    rationale,
+  }, { onConflict: "source_id,target_id,relationship", ignoreDuplicates: true });
+  if (ins.error) console.log("link_insert_error", ins.error.message);
+}
+
+// deno-lint-ignore no-explicit-any
+async function logScreen(supabase: any, row: Record<string, unknown>) {
+  const ins = await supabase.from("screen_log").insert(row);
+  if (ins.error) console.log("screen_log_error", ins.error.message);
+}
+
+// deno-lint-ignore no-explicit-any
+async function linkNewFolder(supabase: any, newId: string, draft: { title: string; body: string }, emb: number[]) {
+  try {
+    const rpc = await supabase.rpc("match_folders", { query_embedding: emb, match_count: 9 });
+    const neighbors = ((rpc.data ?? []) as { id: string; title: string; body: string; similarity: number }[])
+      .filter((m) => m.id !== newId).slice(0, 8);
+    for (const n of neighbors) {
+      const sim = n.similarity;
+      if (sim >= HIGH_SIM) {
+        // Tier 1: embeddings decide the high extreme - free
+        await fileLink(supabase, newId, n.id, sim, "auto: high similarity");
+        await logScreen(supabase, { a_id: newId, b_id: n.id, similarity: sim, flow: "flow1", bucket: "auto_high", confidence: sim, model: "embedding", escalated: false, verify_outcome: "filed" });
+      } else if (sim <= LOW_SIM) {
+        // Tier 1: low extreme - free drop (co-mention rescue is Flow 2's job)
+        await logScreen(supabase, { a_id: newId, b_id: n.id, similarity: sim, flow: "flow1", bucket: "auto_low", confidence: 1 - sim, model: "embedding", escalated: false, verify_outcome: "dropped" });
+      } else {
+        // Tier 2: the screener seat sorts the middle band
+        const s = await screen(draft, n);
+        if (s.bucket === "obvious") {
+          await fileLink(supabase, newId, n.id, s.confidence, "screener: obvious");
+          await logScreen(supabase, { a_id: newId, b_id: n.id, similarity: sim, flow: "flow1", bucket: "obvious", confidence: s.confidence, model: SCREENER, escalated: false, verify_outcome: "filed" });
+        } else if (s.bucket === "nothing") {
+          await logScreen(supabase, { a_id: newId, b_id: n.id, similarity: sim, flow: "flow1", bucket: "nothing", confidence: s.confidence, model: SCREENER, escalated: false, verify_outcome: "dropped" });
+        } else {
+          // Tier 3: cloud verify for the maybes only
+          const v = await verifyRelated(draft, n);
+          if (v.related) await fileLink(supabase, newId, n.id, v.confidence, v.rationale);
+          await logScreen(supabase, { a_id: newId, b_id: n.id, similarity: sim, flow: "flow1", bucket: "maybe", confidence: v.confidence, model: SCREENER, escalated: true, verify_outcome: v.related ? "filed" : "dropped" });
+        }
+      }
+    }
+  } catch (e) {
+    console.log("link_flow1_error", String(e));
+  }
 }
 
 // ============ Request handler ============
