@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.4 - connection engine Phase A: Flow 1 incremental linking)
+// Edge Function: ask (v4.5 - self-revelations file as their own folders about Max, never absorbed into topical ones)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -97,6 +97,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "Two INDEPENDENT flags - both can be true when both are true:",
         "- contains_question: he is asking something he wants to know. A plain request ('what is X?') is a question and NOTHING more - it must never count as knowledge. The gap log depends on pure requests staying pure.",
         "- contains_knowledge: he asserts, explains, or reasons about something he knows, believes, prefers, or does - including facts about his life, his people, and his plans (e.g. 'I'm going to my sister's grad today' = he has a sister, graduating today). Short answers completing an earlier idea count.",
+        "- Self-revelations ARE knowledge, even mid-Q&A: statements about what he loves, values, or why he cares (e.g. 'I love learning the mechanics behind things because it connects me to the laws that govern reality') are among the most valuable material - they describe HIM, not the topic. Never dismiss them as enthusiasm or chatter.",
         "The key distinction: REQUESTING information is not knowledge; TESTING HIS OWN MODEL is. 'So X works like Y because Z, right?' is him proposing a model - that is knowledge (mode: exploration) even though it ends in a question mark, and it is usually ALSO a question.",
         "knowledge_mode: 'exploration' when he is working out a model / hypothesis under test; 'belief' when he holds or states it.",
         "When genuinely unsure whether a question hides a proposed model, lean toward contains_knowledge=true with mode exploration - a stray exploration fold is cheap; a discarded insight is gone. But never do this for plain requests.",
@@ -155,6 +156,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "- title: short and specific. type: concept | project | person | note.",
         "- Preserve Max's actual views and facts. No filler, no invention.",
         "- File what IS said. Missing details (a name, a date) are never a reason to withhold filing - state the fact without the unknown, e.g. 'Max has a sister (name not yet known) who graduates today.' Later answers will refine it.",
+        "- SPLIT self-revelations from topical points. When Max reveals something about himself wrapped around a topic ('I love learning the mechanics because it connects me to the laws that govern reality', said during a fire-physics chat), that becomes its OWN folder about Max (type person or note about him) alongside the topical folder - never absorbed into it. These 'how his mind works' folders are the hubs of his graph.",
         "- epistemic: 'explained' if he explains it in his own words or uses it as analogy; 'stated' if he asserts it with reason; 'hedged' if partial, exploring, or thinking out loud. Exploring is NOT believing - bias toward hedged when in doubt.",
         "- solicited: true when this material answers a question the assistant just asked (check the previous assistant turn); false when Max raised it himself, unprompted. Volunteered material is evidence of what's on his mind; solicited material mostly reflects what the assistant chose to ask.",
         "- exploration: true when the folder captures a model Max is working out or testing ('so X works like Y?'), false when it is something he holds or states. An exploration fold should read as his current working model, phrased as his proposal.",
@@ -254,6 +256,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
           "- contradiction: Max's position has changed - the new draft conflicts with the existing folder.",
           "- new: actually a different idea despite surface similarity.",
           "If the existing folder was updated minutes ago and both address the same question, they are likely the SAME ongoing exploration - the new draft revises the old thinking. Strongly prefer refinement (or contradiction if he reversed) over new in that case. An exploration should resolve into one evolving folder, not a staircase of parallel guesses.",
+          "EXCEPTION: a folder about Max himself (his values, motivations, how he relates to knowledge) is NEVER the same idea as a topical folder it was mentioned alongside - classify as new, not refinement. Identity does not get absorbed into topics.",
         ].join("\n"),
         tools: [{
           name: "classify",
