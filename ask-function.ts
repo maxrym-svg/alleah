@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.2 - solicited/volunteered tagging; occasion guard gates strength only, never filing)
+// Edge Function: ask (v4.3 - dual-flag triage: exploration files as provisional knowledge; questions always log as gaps)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -31,6 +31,7 @@ const ANSWER_SYSTEM = [
   "- Filing is automatic and silent. NEVER ask permission to file, never announce that you will file something, never ask him to repeat things for filing.",
   "- Follow-up questions come from genuine conversational interest in what he just said - like 'That's lovely - what's her name?' - NEVER from a checklist. There is no canonical set of fields for a person, project, or anything else; memory is as thin or thick as conversation makes it. Never track completeness, never work toward filling a record's 'missing' attributes.",
   "- At most ONE follow-up, then let it go. If he never gives a detail, be comfortable never knowing it. Never re-ask something he declined or ignored. A friend who asks one interested question is warm; one who fills every blank is doing an intake interview.",
+  "- The understanding checkpoint: when Max has been working through a topic and seems to have landed somewhere, your one follow-up is best spent on 'so how would you put it in your own words?'. His restatement is what his memory keeps - the conclusion, not the staircase. Use it sparingly, at real resolution points only.",
   "- Be concise, direct, conversational.",
 ].join("\n");
 
@@ -83,42 +84,61 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       .map((t) => (t.role === "user" ? "MAX: " : "ALLEAH: ") + t.content)
       .join("\n");
 
-    // --- Triage (Haiku): newest message only; window is context ---
+    // --- Triage (Haiku): dual-flag assessment - a message can be question AND knowledge ---
     const triage = await anthropic({
       model: TRIAGE_MODEL,
-      max_tokens: 300,
+      max_tokens: 400,
       system: [
-        "You triage Max's NEWEST message for his personal knowledge memory. The earlier turns are context for interpreting it - only the newest message is candidate material.",
-        "Routes:",
-        "- found_knowledge: the newest message asserts, explains, or reasons about something Max knows, believes, prefers, or does - INCLUDING facts about his life, his people, and his plans (e.g. 'I'm going to my sister's grad today' = he has a sister, graduating today). Short answers that complete an idea started earlier count too (context makes them meaningful).",
-        "- question: the newest message is primarily Max asking something he wants to know.",
-        "- nothing_to_file: commands, chatter, acknowledgements, small talk, pure meta-instructions.",
-        "Assistant turns are NEVER source material. When unsure between knowledge and nothing, prefer nothing.",
+        "You assess Max's NEWEST message for his personal knowledge memory. Earlier turns are context for interpreting it - only the newest message is candidate material.",
+        "Two INDEPENDENT flags - both can be true when both are true:",
+        "- contains_question: he is asking something he wants to know. A plain request ('what is X?') is a question and NOTHING more - it must never count as knowledge. The gap log depends on pure requests staying pure.",
+        "- contains_knowledge: he asserts, explains, or reasons about something he knows, believes, prefers, or does - including facts about his life, his people, and his plans (e.g. 'I'm going to my sister's grad today' = he has a sister, graduating today). Short answers completing an earlier idea count.",
+        "The key distinction: REQUESTING information is not knowledge; TESTING HIS OWN MODEL is. 'So X works like Y because Z, right?' is him proposing a model - that is knowledge (mode: exploration) even though it ends in a question mark, and it is usually ALSO a question.",
+        "knowledge_mode: 'exploration' when he is working out a model / hypothesis under test; 'belief' when he holds or states it.",
+        "When genuinely unsure whether a question hides a proposed model, lean toward contains_knowledge=true with mode exploration - a stray exploration fold is cheap; a discarded insight is gone. But never do this for plain requests.",
+        "Neither flag: commands, chatter, acknowledgements, meta-instructions. Assistant turns are NEVER source material.",
       ].join("\n"),
-      tools: [
-        { name: "found_knowledge", description: "Newest message contains Max's knowledge worth drafting.", input_schema: { type: "object", properties: { gist: { type: "string" } }, required: ["gist"] } },
-        { name: "question", description: "Newest message is a question Max is asking.", input_schema: { type: "object", properties: { question_text: { type: "string" } }, required: ["question_text"] } },
-        { name: "nothing_to_file", description: "No knowledge here.", input_schema: { type: "object", properties: {} } },
-      ],
-      tool_choice: { type: "any" },
+      tools: [{
+        name: "assess",
+        description: "Assess the newest message.",
+        input_schema: {
+          type: "object",
+          properties: {
+            contains_question: { type: "boolean" },
+            question_text: { type: "string" },
+            contains_knowledge: { type: "boolean" },
+            knowledge_mode: { type: "string", enum: ["belief", "exploration"] },
+            gist: { type: "string" },
+          },
+          required: ["contains_question", "contains_knowledge"],
+        },
+      }],
+      tool_choice: { type: "tool", name: "assess" },
       messages: [{ role: "user", content: "Conversation window:\n" + windowText + "\n\nNEWEST message from Max: " + newest }],
     });
-    const route = toolUse(triage);
-    console.log("triage", JSON.stringify({ msg: newest.slice(0, 80), route: route?.name }));
+    const assess = toolUse(triage)?.input as {
+      contains_question: boolean; question_text?: string;
+      contains_knowledge: boolean; knowledge_mode?: string;
+    } | undefined;
+    console.log("triage", JSON.stringify({
+      msg: newest.slice(0, 80),
+      question: !!assess?.contains_question,
+      knowledge: !!assess?.contains_knowledge,
+      mode: assess?.knowledge_mode ?? null,
+    }));
+    if (!assess) return;
 
-    if (!route || route.name === "nothing_to_file") return;
-
-    // --- Questions are gap signal, not knowledge (B6) ---
-    if (route.name === "question") {
+    // --- Questions are gap signal (B6) - logged even when the message also holds knowledge ---
+    if (assess.contains_question) {
       const ins = await supabase.from("queries").insert({
-        question_text: newest,
+        question_text: assess.question_text || newest,
         embedding: newestEmbedding,
         matched_folder_ids: matches.map((m) => m.id),
         top_similarity: matches[0]?.similarity ?? null,
       });
       if (ins.error) console.log("queries_insert_error", ins.error.message);
-      return;
     }
+    if (!assess.contains_knowledge) return;
 
     // --- Drafting (Sonnet, tool-enforced, epistemic tagging B5) ---
     const drafting = await anthropic({
@@ -133,6 +153,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "- File what IS said. Missing details (a name, a date) are never a reason to withhold filing - state the fact without the unknown, e.g. 'Max has a sister (name not yet known) who graduates today.' Later answers will refine it.",
         "- epistemic: 'explained' if he explains it in his own words or uses it as analogy; 'stated' if he asserts it with reason; 'hedged' if partial, exploring, or thinking out loud. Exploring is NOT believing - bias toward hedged when in doubt.",
         "- solicited: true when this material answers a question the assistant just asked (check the previous assistant turn); false when Max raised it himself, unprompted. Volunteered material is evidence of what's on his mind; solicited material mostly reflects what the assistant chose to ask.",
+        "- exploration: true when the folder captures a model Max is working out or testing ('so X works like Y?'), false when it is something he holds or states. An exploration fold should read as his current working model, phrased as his proposal.",
         "- If on reflection there is no real idea here, use nothing_to_file.",
       ].join("\n"),
       tools: [
@@ -153,8 +174,9 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
                     body: { type: "string" },
                     epistemic: { type: "string", enum: ["hedged", "stated", "explained"] },
                     solicited: { type: "boolean" },
+                    exploration: { type: "boolean" },
                   },
-                  required: ["title", "type", "body", "epistemic", "solicited"],
+                  required: ["title", "type", "body", "epistemic", "solicited", "exploration"],
                 },
               },
             },
@@ -171,11 +193,12 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       console.log("draft", JSON.stringify({ outcome: "nothing_to_file" }));
       return;
     }
-    const drafts = (drafted.input.folders ?? []) as { title: string; type: string; body: string; epistemic: string; solicited: boolean }[];
+    const drafts = (drafted.input.folders ?? []) as { title: string; type: string; body: string; epistemic: string; solicited: boolean; exploration: boolean }[];
     console.log("capture_stats", JSON.stringify({
       drafts: drafts.length,
       volunteered: drafts.filter((d) => !d.solicited).length,
       solicited: drafts.filter((d) => d.solicited).length,
+      exploration: drafts.filter((d) => d.exploration).length,
     }));
 
     // --- Dedup with five outcomes (B4 + same-occasion guard) ---
@@ -193,7 +216,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       // Outcome: NEW (nothing near the net)
       if (!best || best.similarity < CAND_THRESHOLD) {
         await fileNew(supabase, draft, emb, newest);
-        console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "new", solicited: !!draft.solicited }));
+        console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "new", solicited: !!draft.solicited, mode: draft.exploration ? "exploration" : "belief" }));
         continue;
       }
 
@@ -222,9 +245,10 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         system: [
           "Classify the relationship between an EXISTING memory folder and a NEW draft of Max's knowledge.",
           "- echo: same idea restated, no meaningful new content.",
-          "- refinement: same idea with meaningfully more detail or precision.",
+          "- refinement: same idea with meaningfully more detail, precision, or resolution.",
           "- contradiction: Max's position has changed - the new draft conflicts with the existing folder.",
           "- new: actually a different idea despite surface similarity.",
+          "If the existing folder was updated minutes ago and both address the same question, they are likely the SAME ongoing exploration - the new draft revises the old thinking. Strongly prefer refinement (or contradiction if he reversed) over new in that case. An exploration should resolve into one evolving folder, not a staircase of parallel guesses.",
         ].join("\n"),
         tools: [{
           name: "classify",
@@ -245,6 +269,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
       console.log("outcome", JSON.stringify({
         draft: draft.title.slice(0, 50), outcome: verdict.outcome, folder: existing.id,
         solicited: !!draft.solicited, same_occasion: sameOccasion, bumps: countsAsConviction,
+        mode: draft.exploration ? "exploration" : "belief",
         rationale: verdict.rationale.slice(0, 120),
       }));
 
@@ -258,14 +283,15 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         // same-occasion or solicited echo: no write at all
       } else if (verdict.outcome === "refinement") {
         // Refinements always update content (solicited answers can thicken folders);
-        // only conviction-grade repeats bump strength.
+        // only conviction-grade repeats bump strength. A non-exploration refinement
+        // RESOLVES an exploration thread: the conclusion replaces the working-out,
+        // and the exploration mark is cleared.
         const [newEmb] = await voyage([existing.title + "\n" + draft.body], "document");
+        const newMeta = { ...meta, strength: (meta.strength || 1) + (countsAsConviction ? 1 : 0), epistemic: draft.epistemic } as Record<string, unknown>;
+        if (draft.exploration) newMeta.mode = "exploration";
+        else delete newMeta.mode;
         await supabase.from("folders")
-          .update({
-            body: draft.body,
-            embedding: newEmb,
-            metadata: { ...meta, strength: (meta.strength || 1) + (countsAsConviction ? 1 : 0), epistemic: draft.epistemic },
-          })
+          .update({ body: draft.body, embedding: newEmb, metadata: newMeta })
           .eq("id", existing.id);
       } else if (verdict.outcome === "contradiction") {
         const created = await fileNew(supabase, draft, emb, newest);
@@ -291,15 +317,17 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
 }
 
 // deno-lint-ignore no-explicit-any
-async function fileNew(supabase: any, draft: { title: string; type: string; body: string; epistemic: string; solicited?: boolean }, emb: number[], sourceText: string) {
+async function fileNew(supabase: any, draft: { title: string; type: string; body: string; epistemic: string; solicited?: boolean; exploration?: boolean }, emb: number[], sourceText: string) {
   const valid = ["concept", "project", "person", "note"];
+  const metadata: Record<string, unknown> = { epistemic: draft.epistemic, strength: 1, origin: "ambient", solicited: !!draft.solicited };
+  if (draft.exploration) metadata.mode = "exploration";
   const ins = await supabase.from("folders").insert({
     title: draft.title,
     type: valid.includes(draft.type) ? draft.type : "note",
     body: draft.body,
     embedding: emb,
     source: sourceText,
-    metadata: { epistemic: draft.epistemic, strength: 1, origin: "ambient", solicited: !!draft.solicited },
+    metadata,
   }).select("id").single();
   if (ins.error) { console.log("file_error", ins.error.message); return null; }
   return ins.data;
