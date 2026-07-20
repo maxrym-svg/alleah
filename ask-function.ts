@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.5 - self-revelations file as their own folders about Max, never absorbed into topical ones)
+// Edge Function: ask (v4.6 - background task queuing from chat + task-status awareness)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -36,8 +36,36 @@ const ANSWER_SYSTEM = [
   "- Follow-up questions come from genuine conversational interest in what he just said - like 'That's lovely - what's her name?' - NEVER from a checklist. There is no canonical set of fields for a person, project, or anything else; memory is as thin or thick as conversation makes it. Never track completeness, never work toward filling a record's 'missing' attributes.",
   "- At most ONE follow-up, then let it go. If he never gives a detail, be comfortable never knowing it. Never re-ask something he declined or ignored. A friend who asks one interested question is warm; one who fills every blank is doing an intake interview.",
   "- The understanding checkpoint: when Max has been working through a topic and seems to have landed somewhere, your one follow-up is best spent on 'so how would you put it in your own words?'. His restatement is what his memory keeps - the conclusion, not the staircase. Use it sparingly, at real resolution points only.",
+  "",
+  "Background tasks: Max has a home worker for long research/work tasks (hard caps: ~25 steps, $0.50, 15 minutes).",
+  "- Enter task mode ONLY on an explicit command like 'start a task' / 'queue a background task'. A question, however task-shaped, is NEVER a task - answer it normally in chat. Never infer task intent from context.",
+  "- Before queuing a vague ask: ONE focused round of questions - deliverable shape (summary? comparison? recommendation? rough length?), personal context the worker needs written INTO the instruction (it starts blind: no memory access, no conversation history), and scope vs the caps (offer to split oversized asks). If the request is already clear and self-contained, ask nothing.",
+  "- Then compose the final instruction - self-contained, deliverable-first, all context inlined - and show it: 'Here's what I'll queue: <instruction>. Good?'",
+  "- ONLY after Max replies with a clear yes to that exact instruction, call queue_background_task with max_confirmed true. Then confirm naturally: worker picks it up within a minute, Telegram when done.",
+  "- Task status questions: answer honestly from the RECENT TASKS block if present - queued is queued, running shows its progress text, done points to the result (full text lives in the Tasks tab). Never invent progress.",
+  "- Task results are staged work, never memory: nothing from a result files into his folders unless Max himself says it in conversation.",
   "- Be concise, direct, conversational.",
 ].join("\n");
+
+const QUEUE_TOOL = {
+  name: "queue_background_task",
+  description: "Queue a task for Max's home background worker. Call ONLY when BOTH are true: (a) Max gave an explicit command to start/queue a task in this conversation, and (b) Max just confirmed the exact composed instruction with a clear yes. Never call this on inferred intent or before confirmation.",
+  input_schema: {
+    type: "object",
+    properties: {
+      instruction: { type: "string", description: "Self-contained, deliverable-first instruction with all needed context inlined. The worker sees nothing but this text." },
+      max_confirmed: { type: "boolean", description: "True only if Max explicitly approved this exact instruction." },
+    },
+    required: ["instruction", "max_confirmed"],
+  },
+};
+
+// Crude by design: stops a hallucinated confirmation from queuing against a question.
+function isAffirmative(s: string): boolean {
+  const t = s.trim().toLowerCase();
+  if (t.length > 80 || t.includes("?")) return false;
+  return /\b(yes|yeah|yep|yup|ya|sure|ok|okay|good|confirm|confirmed|approve|approved|go|go ahead|do it|queue it|send it|ship it|sounds good|perfect|correct|proceed)\b/.test(t);
+}
 
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
@@ -511,13 +539,70 @@ Deno.serve(async (req) => {
         "[" + (i + 1) + "] " + m.title + " (" + m.type + ")\n" + m.body).join("\n\n")
       : "(no relevant folders found for this message)";
 
+    // Recent background tasks - inlined so status questions get honest answers with no extra round-trips
+    const taskRows = await supabase.from("worker_tasks")
+      .select("id,instruction,status,progress,spend_usd,steps_used,result,error,created_at")
+      .order("created_at", { ascending: false }).limit(5);
+    const tasks = taskRows.data ?? [];
+    const tasksBlock = tasks.length
+      ? "\n\nMax's RECENT TASKS (answer status questions from this, honestly - full results are in the Tasks tab):\n" +
+        tasks.map((t: Record<string, unknown>) =>
+          "- [" + t.status + "] \"" + String(t.instruction).slice(0, 80) + "\"" +
+          " | steps " + (t.steps_used ?? 0) + ", $" + (t.spend_usd ?? 0) +
+          (t.progress ? " | now: " + String(t.progress).slice(0, 120) : "") +
+          (t.result ? " | result preview: " + String(t.result).slice(0, 200) : "") +
+          (t.error ? " | error: " + String(t.error).slice(0, 120) : "")
+        ).join("\n")
+      : "";
+
+    const fullSystem = ANSWER_SYSTEM +
+      "\n\nMax's memory folders relevant to his latest message:\n\n" + context + tasksBlock;
+    const chatMessages = window.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.content }));
+
     const am = await anthropic({
       model: ANSWER_MODEL,
       max_tokens: 1500,
-      system: ANSWER_SYSTEM + "\n\nMax's memory folders relevant to his latest message:\n\n" + context,
-      messages: window.map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.content })),
+      system: fullSystem,
+      tools: [QUEUE_TOOL],
+      messages: chatMessages,
     });
-    const textBlock = (am.content || []).find((c: { type: string }) => c.type === "text") as { text?: string } | undefined;
+
+    // Tool execution round-trip - only costs a second call when a task is actually queued
+    let final = am;
+    const tu = (am.content || []).find((c: { type: string }) => c.type === "tool_use") as
+      | { id: string; name: string; input: { instruction?: string; max_confirmed?: boolean } }
+      | undefined;
+    if (tu && tu.name === "queue_background_task") {
+      let outcome: Record<string, unknown>;
+      if (!tu.input.max_confirmed) {
+        outcome = { error: "rejected: max_confirmed was false - show Max the instruction and get his explicit yes first" };
+      } else if (!isAffirmative(newest)) {
+        // Trust-level flag, wall-level check: the model's claim must match a yes-shaped latest message
+        outcome = { error: "rejected: Max's latest message is not a clear affirmative - do not queue until he explicitly approves the exact instruction" };
+      } else {
+        const ins = await supabase.from("worker_tasks")
+          .insert({ instruction: tu.input.instruction, status: "queued" })
+          .select("id").single();
+        outcome = ins.error ? { error: ins.error.message } : { queued: true, id: ins.data.id };
+      }
+      console.log("queue_task", JSON.stringify({
+        accepted: !!outcome.queued,
+        reason: outcome.error ?? null,
+        instruction: String(tu.input.instruction ?? "").slice(0, 120),
+      }));
+      final = await anthropic({
+        model: ANSWER_MODEL,
+        max_tokens: 800,
+        system: fullSystem,
+        messages: [
+          ...chatMessages,
+          { role: "assistant", content: am.content },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(outcome) }] },
+        ],
+      });
+    }
+
+    const textBlock = (final.content || []).find((c: { type: string }) => c.type === "text") as { text?: string } | undefined;
     const answer = textBlock?.text || "";
 
     // Ambient capture continues after the response returns (B1) - survives client disconnect.
