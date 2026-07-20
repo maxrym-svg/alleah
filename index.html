@@ -195,14 +195,13 @@ function Tasks(props) {
   const [tasks, setTasks] = React.useState([]);
   const [msg, setMsg] = React.useState('loading...');
   async function load() {
-    if (document.visibilityState !== 'visible') return;
     const r = await supabase.from('worker_tasks').select('*').order('created_at', {ascending:false}).limit(50);
     if (r.error) setMsg('Error: ' + r.error.message);
     else { setTasks(r.data); setMsg(r.data.length ? '' : 'No tasks yet. Say "Alleah, start a task" in chat.'); }
   }
   React.useEffect(function(){
-    load();
-    const iv = setInterval(load, 5000);
+    load(); // initial load always runs; only the polls are visibility-gated
+    const iv = setInterval(function(){ if (document.visibilityState === 'visible') load(); }, 5000);
     return function(){ clearInterval(iv); };
   }, []);
   async function cancel(id) {
