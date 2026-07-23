@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.6 - background task queuing from chat + task-status awareness)
+// Edge Function: ask (v4.7 - tense/modality preserved in drafting; source stores full user-turn window for audit)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -182,7 +182,8 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "Draft atomic folders from Max's NEWEST message only, using earlier turns as context to resolve references. Never file the assistant's words or ideas.",
         "- Each folder: exactly ONE idea, 3-5 sentences, self-contained (no unresolved references).",
         "- title: short and specific. type: concept | project | person | note.",
-        "- Preserve Max's actual views and facts. No filler, no invention.",
+        "- Preserve Max's actual views and facts. No filler, no invention. Do not add preferences, priorities, or reasons he did not state.",
+        "- Preserve tense and modality exactly: a plan stays a plan ('Max plans to...'), a hope a hope, a maybe a maybe. Something he intends to have is not something he has - even when his own phrasing compresses it ('the X at home' about a future X files as planned, not possessed). Never let a future or hypothetical read as a present fact.",
         "- File what IS said. Missing details (a name, a date) are never a reason to withhold filing - state the fact without the unknown, e.g. 'Max has a sister (name not yet known) who graduates today.' Later answers will refine it.",
         "- SPLIT self-revelations from topical points. When Max reveals something about himself wrapped around a topic ('I love learning the mechanics because it connects me to the laws that govern reality', said during a fire-physics chat), that becomes its OWN folder about Max (type person or note about him) alongside the topical folder - never absorbed into it. These 'how his mind works' folders are the hubs of his graph.",
         "- epistemic: 'explained' if he explains it in his own words or uses it as analogy; 'stated' if he asserts it with reason; 'hedged' if partial, exploring, or thinking out loud. Exploring is NOT believing - bias toward hedged when in doubt.",
@@ -237,6 +238,9 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
 
     // --- Dedup with five outcomes (B4 + same-occasion guard) ---
     const userTurnTexts = turns.filter((t) => t.role === "user").map((t) => t.content);
+    // Audit trail: source preserves ALL of Max's turns in the window, not just the newest -
+    // so a folder's provenance is fully checkable later. Newest marked for clarity.
+    const sourceText = userTurnTexts.map((t) => (t === newest ? "NEWEST> " : "MAX> ") + t).join("\n");
     for (const draft of drafts) {
       const [emb] = await voyage([draft.title + "\n" + draft.body], "document");
       const rpc = await supabase.rpc("match_folders", { query_embedding: emb, match_count: 3 });
@@ -249,7 +253,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
 
       // Outcome: NEW (nothing near the net)
       if (!best || best.similarity < CAND_THRESHOLD) {
-        const created = await fileNew(supabase, draft, emb, newest);
+        const created = await fileNew(supabase, draft, emb, sourceText);
         console.log("outcome", JSON.stringify({ draft: draft.title.slice(0, 50), outcome: "new", solicited: !!draft.solicited, mode: draft.exploration ? "exploration" : "belief" }));
         if (created) await linkNewFolder(supabase, created.id, draft, emb);
         continue;
@@ -330,7 +334,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
           .update({ body: draft.body, embedding: newEmb, metadata: newMeta })
           .eq("id", existing.id);
       } else if (verdict.outcome === "contradiction") {
-        const created = await fileNew(supabase, draft, emb, newest);
+        const created = await fileNew(supabase, draft, emb, sourceText);
         if (created) {
           await supabase.from("links").insert({
             source_id: created.id,
@@ -345,7 +349,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
           await linkNewFolder(supabase, created.id, draft, emb);
         }
       } else {
-        const created = await fileNew(supabase, draft, emb, newest);
+        const created = await fileNew(supabase, draft, emb, sourceText);
         if (created) await linkNewFolder(supabase, created.id, draft, emb);
       }
     }
