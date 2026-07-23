@@ -1,4 +1,4 @@
-// Edge Function: ask (v4.7 - tense/modality preserved in drafting; source stores full user-turn window for audit)
+// Edge Function: ask (v4.8 - curiosity never files as knowledge; commands are neither; Phase B clustering pass)
 // Chat message + recent turns in -> grounded/labeled answer out immediately;
 // ambient pipeline (triage -> draft -> dedup -> file) continues via EdgeRuntime.waitUntil.
 // B0: only Max's words are ever filed. Assistant turns are context, never source material.
@@ -129,6 +129,8 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "The key distinction: REQUESTING information is not knowledge; TESTING HIS OWN MODEL is. 'So X works like Y because Z, right?' is him proposing a model - that is knowledge (mode: exploration) even though it ends in a question mark, and it is usually ALSO a question.",
         "knowledge_mode: 'exploration' when he is working out a model / hypothesis under test; 'belief' when he holds or states it.",
         "When genuinely unsure whether a question hides a proposed model, lean toward contains_knowledge=true with mode exploration - a stray exploration fold is cheap; a discarded insight is gone. But never do this for plain requests.",
+        "A question is NEVER knowledge about wanting-to-know: asking about X must not produce contains_knowledge for the curiosity itself. Curiosity lives in the gap log only. (Genuine life intentions he states - trips, purchases, plans - are knowledge; wanting an explanation is not.)",
+        "Commands and requests to the assistant ('make it 600 words', 'start a task') are NEITHER questions for the gap log NOR knowledge - flag neither.",
         "Neither flag: commands, chatter, acknowledgements, meta-instructions. Assistant turns are NEVER source material.",
       ].join("\n"),
       tools: [{
@@ -189,6 +191,7 @@ async function ambientPipeline(supabase: any, turns: { role: string; content: st
         "- epistemic: 'explained' if he explains it in his own words or uses it as analogy; 'stated' if he asserts it with reason; 'hedged' if partial, exploring, or thinking out loud. Exploring is NOT believing - bias toward hedged when in doubt.",
         "- solicited: true when this material answers a question the assistant just asked (check the previous assistant turn); false when Max raised it himself, unprompted. Volunteered material is evidence of what's on his mind; solicited material mostly reflects what the assistant chose to ask.",
         "- exploration: true when the folder captures a model Max is working out or testing ('so X works like Y?'), false when it is something he holds or states. An exploration fold should read as his current working model, phrased as his proposal.",
+        "- Never draft 'Max wants to know/understand X' folders from his questions - curiosity is gap-log material, not knowledge. A folder about wanting an explanation is a misfile.",
         "- If on reflection there is no real idea here, use nothing_to_file.",
       ].join("\n"),
       tools: [
@@ -502,6 +505,84 @@ async function linkNewFolder(supabase: any, newId: string, draft: { title: strin
   }
 }
 
+// ============ Phase B: clustering pass (Louvain phase-1 over the link graph) ============
+// Leap generators (Flow 2) deliberately unbuilt. Runs at most once per day, in the
+// background after ambient capture, so the day's folders are included. Membership
+// goes to cluster_assignments keyed by pass - folders are never touched (updated_at stays honest).
+// deno-lint-ignore no-explicit-any
+async function clusteringPass(supabase: any) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const last = await supabase.from("link_passes")
+      .select("id,status,started_at").order("started_at", { ascending: false }).limit(1);
+    const lp = (last.data ?? [])[0];
+    if (lp && String(lp.started_at).slice(0, 10) === today) return; // already ran (or running) today
+
+    const pass = await supabase.from("link_passes")
+      .insert({ status: "started", notes: "clustering only; leap generators unbuilt" })
+      .select("id").single();
+    if (pass.error) { console.log("pass_error", pass.error.message); return; }
+    const passId = pass.data.id;
+
+    const f = await supabase.from("folders").select("id,title");
+    const l = await supabase.from("links").select("source_id,target_id,confidence,relationship");
+    const folders = (f.data ?? []) as { id: string; title: string }[];
+    const edges = ((l.data ?? []) as { source_id: string; target_id: string; confidence: number; relationship: string }[])
+      .filter((e) => e.relationship === "related");
+
+    // Louvain phase 1: greedy modularity-gain moves until stable (plenty at this scale)
+    const ids = folders.map((x) => x.id);
+    const idx = new Map(ids.map((id, i) => [id, i]));
+    const n = ids.length;
+    const adj: Map<number, number>[] = Array.from({ length: n }, () => new Map());
+    let m2 = 0;
+    for (const e of edges) {
+      const a = idx.get(e.source_id), b = idx.get(e.target_id);
+      if (a === undefined || b === undefined || a === b) continue;
+      const w = Number(e.confidence) || 1;
+      adj[a].set(b, (adj[a].get(b) || 0) + w);
+      adj[b].set(a, (adj[b].get(a) || 0) + w);
+      m2 += 2 * w;
+    }
+    const comm = ids.map((_, i) => i);
+    const k = adj.map((nb) => [...nb.values()].reduce((s, w) => s + w, 0));
+    const commTot = [...k];
+    if (m2 > 0) {
+      let moved = true, guard = 0;
+      while (moved && guard++ < 20) {
+        moved = false;
+        for (let i = 0; i < n; i++) {
+          const wToComm = new Map<number, number>();
+          for (const [j, w] of adj[i]) wToComm.set(comm[j], (wToComm.get(comm[j]) || 0) + w);
+          const cur = comm[i];
+          commTot[cur] -= k[i];
+          let best = cur, bestGain = (wToComm.get(cur) || 0) - commTot[cur] * k[i] / m2;
+          for (const [c, w] of wToComm) {
+            const gain = w - commTot[c] * k[i] / m2;
+            if (gain > bestGain + 1e-9) { bestGain = gain; best = c; }
+          }
+          commTot[best] += k[i];
+          if (best !== cur) { comm[i] = best; moved = true; }
+        }
+      }
+    }
+    const relabel = new Map<number, number>();
+    let next = 0;
+    const rows = ids.map((id, i) => {
+      if (!relabel.has(comm[i])) relabel.set(comm[i], next++);
+      return { pass_id: passId, folder_id: id, cluster_id: relabel.get(comm[i]) };
+    });
+    const ins = await supabase.from("cluster_assignments").insert(rows);
+    if (ins.error) { console.log("cluster_insert_error", ins.error.message); return; }
+    await supabase.from("link_passes")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .eq("id", passId);
+    console.log("clustering_pass", JSON.stringify({ pass: passId, folders: n, edges: edges.length, clusters: next }));
+  } catch (e) {
+    console.log("clustering_error", String(e));
+  }
+}
+
 // ============ Request handler ============
 
 Deno.serve(async (req) => {
@@ -610,10 +691,11 @@ Deno.serve(async (req) => {
     const answer = textBlock?.text || "";
 
     // Ambient capture continues after the response returns (B1) - survives client disconnect.
+    // Clustering pass chains after it (internally limited to once per day).
+    const background = ambientPipeline(supabase, window, newest, qEmbedding, matches)
+      .then(() => clusteringPass(supabase));
     // deno-lint-ignore no-explicit-any
-    (globalThis as any).EdgeRuntime?.waitUntil?.(
-      ambientPipeline(supabase, window, newest, qEmbedding, matches),
-    ) ?? ambientPipeline(supabase, window, newest, qEmbedding, matches);
+    (globalThis as any).EdgeRuntime?.waitUntil?.(background) ?? background;
 
     return json({
       answer,
