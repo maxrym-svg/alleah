@@ -1,0 +1,47 @@
+name: promote-preview
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: 'Preview task id to promote'
+        required: true
+      expected_sha:
+        description: 'Staged commit SHA you reviewed (refuses if staged files moved since)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch staged files and verify SHA (what you reviewed is what ships)
+        run: |
+          set -e
+          git clone --depth 100 https://github.com/maxrym-svg/alleah-preview.git /tmp/preview
+          cd /tmp/preview
+          actual=$(git log -1 --format=%H -- "staged/${{ github.event.inputs.task_id }}")
+          if [ -z "$actual" ]; then echo "REFUSED: no staged files for this task"; exit 1; fi
+          if [ "$actual" != "${{ github.event.inputs.expected_sha }}" ]; then
+            echo "REFUSED: staged files changed since review (expected ${{ github.event.inputs.expected_sha }}, found $actual)"
+            exit 1
+          fi
+      - name: Enforce app-surface allowlist (fence 4 lives here, structurally)
+        run: |
+          set -e
+          cd "/tmp/preview/staged/${{ github.event.inputs.task_id }}"
+          bad=$(find . -type f \( -name '*-function.ts' -o -name '*.sql' -o -path '*/.github/*' -o -name '*.yml' -o -name '*.yaml' \) | head -5)
+          if [ -n "$bad" ]; then echo "REFUSED: staged bundle contains non-app-surface files:"; echo "$bad"; exit 1; fi
+          odd=$(find . -type f ! \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.json' -o -name '*.svg' -o -name '*.png' -o -name '*.ico' -o -name '*.webmanifest' \) | head -5)
+          if [ -n "$odd" ]; then echo "REFUSED: unexpected file types in bundle:"; echo "$odd"; exit 1; fi
+      - name: Copy staged files and commit
+        run: |
+          set -e
+          cp -r "/tmp/preview/staged/${{ github.event.inputs.task_id }}/." .
+          git config user.name "maxrym-svg (promote)"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "promote: ${{ github.event.inputs.task_id }}"
+          git push
