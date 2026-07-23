@@ -5,6 +5,7 @@ on:
     paths:
       - capture-function.ts
       - ask-function.ts
+      - submit-pins-function.ts
       - .github/workflows/deploy.yml
   workflow_dispatch: {}
 
@@ -21,10 +22,13 @@ jobs:
           version: latest
       - name: Stage functions in CLI layout
         run: |
-          mkdir -p supabase/functions/capture supabase/functions/ask
+          mkdir -p supabase/functions/capture supabase/functions/ask supabase/functions/submit-pins
           cp capture-function.ts supabase/functions/capture/index.ts
           cp ask-function.ts supabase/functions/ask/index.ts
+          cp submit-pins-function.ts supabase/functions/submit-pins/index.ts
       - name: Deploy capture
         run: supabase functions deploy capture --project-ref $PROJECT_REF
       - name: Deploy ask
         run: supabase functions deploy ask --project-ref $PROJECT_REF
+      - name: Deploy submit-pins (public endpoint - no JWT verification by design)
+        run: supabase functions deploy submit-pins --no-verify-jwt --project-ref $PROJECT_REF
