@@ -1,0 +1,25 @@
+name: rollback-promotion
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'The promote commit to revert (one step, always available)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Revert the promote commit
+        run: |
+          set -e
+          git config user.name "maxrym-svg (rollback)"
+          git config user.email "actions@users.noreply.github.com"
+          git revert --no-edit ${{ github.event.inputs.commit_sha }}
+          git push
