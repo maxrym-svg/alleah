@@ -39,6 +39,7 @@ input{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;borde
 .seg{flex:1;height:8px;border-radius:2px;background:#2c313a}
 .seg.on{background:#3ecf8e}
 .meter{height:8px;border-radius:4px;background:#2c313a;overflow:hidden;margin:4px 0}
+.card{background:#12151a;border:1px solid #2c313a;border-radius:12px;padding:12px 14px;margin:10px 0}
 .meter>div{height:100%;border-radius:4px}
 .small{font-size:12px;color:#9aa3ad;margin:2px 0}
 .task-full{white-space:pre-wrap;background:#12151a;border:1px solid #2c313a;border-radius:8px;padding:10px;margin-top:8px;max-height:320px;overflow-y:auto;font-size:14px}
@@ -156,33 +157,66 @@ function TaskCard(props) {
   const t = props.t;
   const [open, setOpen] = React.useState(false);
   const active = t.status === 'queued' || t.status === 'running';
-  const steps = Math.min(t.steps_used || 0, 25);
-  const spend = Math.min(Number(t.spend_usd) || 0, 0.5);
-  const spendRatio = spend / 0.5;
+  // Kind-aware budget caps: build/revision run on the larger build budget.
+  const CAP = (t.kind === 'build' || t.kind === 'revision')
+    ? {steps: 50, spend: 2.00, min: 30}
+    : {steps: 25, spend: 0.50, min: 15};
+  const steps = Math.min(t.steps_used || 0, CAP.steps);
+  const spend = Math.min(Number(t.spend_usd) || 0, CAP.spend);
+  const spendRatio = spend / CAP.spend;
   const endMs = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
-  const elapsedMs = Math.max(0, Math.min(endMs - new Date(t.created_at).getTime(), 15*60000));
+  const elapsedMs = Math.max(0, Math.min(endMs - new Date(t.created_at).getTime(), CAP.min*60000));
   const elapsed = Math.floor(elapsedMs/60000) + 'm ' + Math.floor((elapsedMs%60000)/1000) + 's';
   const spendColor = spendRatio < 0.5 ? '#3ecf8e' : spendRatio < 0.8 ? '#e0a458' : '#ff7b72';
   const color = STATUS_COLOR[t.status] || '#9aa3ad';
+  const pv = props.preview;
+  const rvw = props.review;
+  const sha = rvw ? (/audited staged commit: ([0-9a-f]{7,40})/i.exec(rvw) || [])[1] : null;
+  // Clean verdict needs POSITIVE evidence: an audited SHA plus an explicit no-findings
+  // marker, and no findings SECTION. A findings section is an anchored "Findings:" line
+  // not immediately saying none/0 - so "no findings in the CSS" elsewhere can't cancel
+  // a real findings list. Ambiguity defaults to "ask Alleah" - never green.
+  const saysClean = rvw ? /\bno findings\b|\b0 findings\b|\bverdict:\s*clean\b|\bfindings:\s*(none|0)\b/i.test(rvw) : false;
+  const hasFindings = rvw ? /^\s*findings\s*:(?!\s*(none|0)\b)/mi.test(rvw) : false;
+  const clean = !!sha && saysClean && !hasFindings;
+  const safeUrl = pv && typeof pv.preview_url === 'string' && /^https:\/\//.test(pv.preview_url);
   return h('div', {className:'card'},
     h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}},
       h('span', {className:'badge'},
         h('span', {className:'dot' + (t.status==='running'?' pulse':''), style:{background:color}}),
-        h('span', {style:{color:color}}, t.status)),
+        h('span', {style:{color:color}}, (t.kind && t.kind !== 'research' ? t.kind + ' · ' : '') + t.status)),
       h('span', {className:'small'}, fmtAge(t.created_at)),
       active ? h('button', {className:'secondary', style:{marginTop:0,padding:'4px 10px',fontSize:'12px'},
         onClick:function(){ if(confirm('Cancel this task?')) props.onCancel(t.id); }}, 'Cancel') : null),
+    pv && !(pv.status === 'expired' && !safeUrl) ? h('p', {className:'small', style:{margin:'6px 0 0'}},
+      // preview_url is worker-written: only render it as a link when it's a real https URL.
+      // No URL while building is normal; no URL otherwise is suspect.
+      safeUrl ? h('a', {href: pv.preview_url, target:'_blank', rel:'noopener', style:{color:'#3ecf8e'}}, 'Preview ↗')
+              : h('span', {style:{color:'#9aa3ad'}}, pv.status === 'building' ? 'preview building…' : 'preview url missing'),
+      '  rev ' + pv.revision + ' · ' + pv.status,
+      rvw ? (clean
+        ? h('span', null, '  ·  review: clean ✓  ',
+            h('a', {href:'https://github.com/maxrym-svg/alleah/actions/workflows/promote-preview.yml', target:'_blank', rel:'noopener', style:{color:'#3ecf8e'}}, 'Promote ↗'),
+            '  sha ' + sha.slice(0,12) + '…')
+        : hasFindings
+          ? h('span', {style:{color:'#e0a458'}}, '  ·  review: findings - ask Alleah')
+          : h('span', {style:{color:'#9aa3ad'}}, '  ·  review done - ask Alleah for the verdict')) : null) : null,
     h('p', {style:{margin:'8px 0 4px',cursor:'pointer'}, onClick:function(){setOpen(!open)}},
-      open ? t.instruction : (t.instruction.length > 110 ? t.instruction.slice(0,110) + '...' : t.instruction)),
+      (function(){
+        const label = t.kind === 'review'
+          ? 'audit of build ' + (t.instruction || '').trim().slice(0, 8)
+          : (t.instruction || '');
+        return open ? label : (label.length > 110 ? label.slice(0,110) + '...' : label);
+      })()),
     t.status === 'running' && t.progress ? h('p', {className:'small', style:{color:'#e6e6e6'}}, '▸ ' + t.progress) : null,
     active ? h('div', null,
-      h('div', {className:'small'}, 'steps used: ' + steps + ' / 25'),
-      h('div', {className:'segbar'}, Array.from({length:25}, function(_, i){
+      h('div', {className:'small'}, 'steps used: ' + steps + ' / ' + CAP.steps),
+      h('div', {className:'segbar'}, Array.from({length: CAP.steps}, function(_, i){
         return h('span', {key:i, className:'seg' + (i < steps ? ' on' : '')}); })),
-      h('div', {className:'small'}, 'spend: $' + spend.toFixed(2) + ' / $0.50 cap'),
+      h('div', {className:'small'}, 'spend: $' + spend.toFixed(2) + ' / $' + CAP.spend.toFixed(2) + ' cap'),
       h('div', {className:'meter'}, h('div', {style:{width:(spendRatio*100)+'%',background:spendColor}})),
-      h('div', {className:'small'}, 'time since queued: ' + elapsed + ' / 15m limit (worker may start up to 1m after queuing)'),
-      h('div', {className:'meter'}, h('div', {style:{width:(elapsedMs/(15*60000)*100)+'%',background:'#3ecf8e'}}))) : null,
+      h('div', {className:'small'}, 'time since queued: ' + elapsed + ' / ' + CAP.min + 'm limit (worker may start up to 1m after queuing)'),
+      h('div', {className:'meter'}, h('div', {style:{width:(elapsedMs/(CAP.min*60000)*100)+'%',background:'#3ecf8e'}}))) : null,
     open ? h('div', null,
       t.result ? h('div', {className:'task-full'}, t.result) : null,
       t.error ? h('p', {className:'err', style:{padding:0}}, t.error) : null,
@@ -193,11 +227,25 @@ function TaskCard(props) {
 
 function Tasks(props) {
   const [tasks, setTasks] = React.useState([]);
+  const [previews, setPreviews] = React.useState({});
+  const [reviews, setReviews] = React.useState({});
   const [msg, setMsg] = React.useState('loading...');
   async function load() {
     const r = await supabase.from('worker_tasks').select('*').order('created_at', {ascending:false}).limit(50);
-    if (r.error) setMsg('Error: ' + r.error.message);
-    else { setTasks(r.data); setMsg(r.data.length ? '' : 'No tasks yet. Say "Alleah, start a task" in chat.'); }
+    if (r.error) { setMsg('Error: ' + r.error.message); return; }
+    setTasks(r.data);
+    setMsg(r.data.length ? '' : 'No tasks yet. Say "Alleah, start a task" in chat.');
+    // latest done review per build task (review instruction = build task id)
+    const rv = {};
+    r.data.filter(function(t){ return t.kind === 'review' && t.status === 'done' && t.result; })
+      .forEach(function(t){ const key = (t.instruction || '').trim(); if (!rv[key]) rv[key] = t.result; });
+    setReviews(rv);
+    const p = await supabase.from('preview_tasks').select('task_id,status,revision,preview_url');
+    if (!p.error) {
+      const map = {};
+      p.data.forEach(function(x){ map[x.task_id] = x; });
+      setPreviews(map);
+    }
   }
   React.useEffect(function(){
     load(); // initial load always runs; only the polls are visibility-gated
@@ -211,7 +259,7 @@ function Tasks(props) {
   }
   return h('div', {id:'tasks'},
     msg ? h('p', {className:'muted'}, msg) : null,
-    tasks.map(function(t){ return h(TaskCard, {key:t.id, t:t, onCancel:cancel}); }));
+    tasks.map(function(t){ return h(TaskCard, {key:t.id, t:t, onCancel:cancel, preview:previews[t.id], review:reviews[String(t.id)]}); }));
 }
 
 function App() {
