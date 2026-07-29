@@ -23,14 +23,14 @@ textarea{flex:1;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border
 button{background:#3ecf8e;color:#08130d;border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
 button.secondary{background:#2c313a;color:#e6e6e6;font-size:13px;padding:6px 12px;border-radius:8px}
 button:disabled{opacity:.5}
-input{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
+input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
 .auth{padding:16px 14px}
 .auth button{padding:12px 18px;margin-top:10px}
 .row{display:flex;gap:8px}.row>*{flex:1}
 .muted{color:#9aa3ad;font-size:14px}
 .err{color:#ff7b72;font-size:14px;padding:0 14px}
 .typing{align-self:flex-start;color:#9aa3ad;font-size:14px;padding:0 6px}
-#tasks{flex:1;overflow-y:auto;padding:8px 14px}
+#tasks,#goals{flex:1;overflow-y:auto;padding:8px 14px}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid #2c313a}
 .dot{width:8px;height:8px;border-radius:50%}
 .pulse{animation:pulse 1.5s infinite}
@@ -43,6 +43,18 @@ input{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;borde
 .meter>div{height:100%;border-radius:4px}
 .small{font-size:12px;color:#9aa3ad;margin:2px 0}
 .task-full{white-space:pre-wrap;background:#12151a;border:1px solid #2c313a;border-radius:8px;padding:10px;margin-top:8px;max-height:320px;overflow-y:auto;font-size:14px}
+.navbar{display:flex;gap:8px}
+.pill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+.filterbar{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px}
+.filterbtn{flex:none;background:#1a1d23;color:#9aa3ad;border:1px solid #2c313a;border-radius:999px;padding:6px 13px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.filterbtn.active{background:#e6e6e6;color:#0f1115;border-color:#e6e6e6}
+.summary{display:flex;gap:14px;flex-wrap:wrap;padding:2px 2px 10px;color:#9aa3ad;font-size:12px}
+.summary b{color:#e6e6e6}
+.goal-desc{white-space:pre-wrap;background:#0f1115;border:1px solid #2c313a;border-radius:8px;padding:10px;margin-top:8px;font-size:13.5px;color:#c7ccd3}
+.addform{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.addform .row2{display:flex;gap:8px}
+.addform .row2>*{flex:1}
+.newgoalbtn{width:100%;text-align:left;background:#1a1d23;color:#9aa3ad;border:1px dashed #2c313a}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -120,11 +132,15 @@ function Chat(props) {
   return h(React.Fragment, null,
     h('header', null,
       h('h1', null, 'Alleah'),
-      h('div', {style:{display:'flex',gap:'8px'}},
-        h('button', {className:'secondary', style:{marginTop:0}, onClick:()=>setView(view==='tasks'?'chat':'tasks')}, view==='tasks' ? 'Chat' : 'Tasks'),
+      h('div', {className:'navbar'},
+        h('button', {className:'secondary', style:{marginTop:0, background: view==='chat' ? '#3ecf8e':'#2c313a', color: view==='chat' ? '#08130d':'#e6e6e6'}, onClick:()=>setView('chat')}, 'Chat'),
+        h('button', {className:'secondary', style:{marginTop:0, background: view==='tasks' ? '#3ecf8e':'#2c313a', color: view==='tasks' ? '#08130d':'#e6e6e6'}, onClick:()=>setView('tasks')}, 'Tasks'),
+        h('button', {className:'secondary', style:{marginTop:0, background: view==='goals' ? '#3ecf8e':'#2c313a', color: view==='goals' ? '#08130d':'#e6e6e6'}, onClick:()=>setView('goals')}, 'Goals'),
         h('button', {className:'secondary', onClick:()=>{ if(confirm('Clear this conversation? (Your memory folders are not affected.)')) setMessages([]); }}, 'New chat'),
         h('button', {className:'secondary', onClick:()=>supabase.auth.signOut()}, 'Sign out'))),
-    view === 'tasks' ? h(Tasks, {session: props.session}) : h(React.Fragment, null,
+    view === 'tasks' ? h(Tasks, {session: props.session})
+    : view === 'goals' ? h(Goals, {session: props.session})
+    : h(React.Fragment, null,
     h('div', {id:'thread'},
       messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
       messages.map((m, i) => h(React.Fragment, {key:i},
@@ -189,8 +205,6 @@ function TaskCard(props) {
       active ? h('button', {className:'secondary', style:{marginTop:0,padding:'4px 10px',fontSize:'12px'},
         onClick:function(){ if(confirm('Cancel this task?')) props.onCancel(t.id); }}, 'Cancel') : null),
     pv && !(pv.status === 'expired' && !safeUrl) ? h('p', {className:'small', style:{margin:'6px 0 0'}},
-      // preview_url is worker-written: only render it as a link when it's a real https URL.
-      // No URL while building is normal; no URL otherwise is suspect.
       safeUrl ? h('a', {href: pv.preview_url, target:'_blank', rel:'noopener', style:{color:'#3ecf8e'}}, 'Preview ↗')
               : h('span', {style:{color:'#9aa3ad'}}, pv.status === 'building' ? 'preview building…' : 'preview url missing'),
       '  rev ' + pv.revision + ' · ' + pv.status,
@@ -260,6 +274,169 @@ function Tasks(props) {
   return h('div', {id:'tasks'},
     msg ? h('p', {className:'muted'}, msg) : null,
     tasks.map(function(t){ return h(TaskCard, {key:t.id, t:t, onCancel:cancel, preview:previews[t.id], review:reviews[String(t.id)]}); }));
+}
+
+// ===== Goals tab =====
+// NOTE (data layer, per revision 2a9e67c9): goal + difficulty data is served from an
+// in-memory fixture below, not from the database. The earlier version of this feature
+// staged two migrations (006_goals.sql, 007_goal_difficulty.sql) that created a real
+// `goals` table; those are removed. When a real goals table + RPCs are designed and
+// migrated, swap GOAL_FIXTURES / the local mutations below for supabase.from('goals')
+// calls following the same RLS-policy pattern as folders/queries/worker_tasks. Until
+// then this view has no schema dependency and performs no live DB writes.
+const DIFFICULTY = {
+  easy:   {label: 'Easy',   color: '#3ecf8e'},
+  medium: {label: 'Medium', color: '#58a6ff'},
+  hard:   {label: 'Hard',   color: '#e0a458'},
+  epic:   {label: 'Epic',   color: '#d68fff'},
+};
+const GOAL_STATUS_COLOR = {active:'#3ecf8e', completed:'#3ecf8e', paused:'#e0a458', abandoned:'#5c636e'};
+const GOALS_DAY = 86400000;
+
+function makeGoalFixtures() {
+  const now = Date.now();
+  return [
+    {
+      id: 'g1', title: 'Run a 10K', category: 'Health', difficulty: 'medium', status: 'active',
+      description: 'Build up long-run mileage on the weekends and keep two easy runs during the week until race pace feels comfortable for the full distance.',
+      progress_pct: 62, streak_days: 14,
+      created_at: now - 40*GOALS_DAY, target_date: now + 21*GOALS_DAY,
+    },
+    {
+      id: 'g2', title: 'Ship personal portfolio site', category: 'Career', difficulty: 'hard', status: 'active',
+      description: 'Rebuild the portfolio with three case studies, a proper writeup of the memory-graph project, and a fast static build — no framework bloat.',
+      progress_pct: 30, streak_days: 3,
+      created_at: now - 18*GOALS_DAY, target_date: now - 2*GOALS_DAY, // overdue on purpose
+    },
+    {
+      id: 'g3', title: 'Read 12 books this year', category: 'Learning', difficulty: 'easy', status: 'active',
+      description: 'One book a month, mix of fiction and non-fiction. Currently on book 10.',
+      progress_pct: 83, streak_days: 0,
+      created_at: now - 210*GOALS_DAY, target_date: now + 55*GOALS_DAY,
+    },
+    {
+      id: 'g4', title: 'Learn conversational Spanish', category: 'Learning', difficulty: 'epic', status: 'active',
+      description: 'Daily app lessons plus one live conversation exchange per week. Long-horizon goal, slow and steady.',
+      progress_pct: 12, streak_days: 5,
+      created_at: now - 9*GOALS_DAY, target_date: now + 300*GOALS_DAY,
+    },
+    {
+      id: 'g5', title: 'Meditate daily for a month', category: 'Health', difficulty: 'easy', status: 'completed',
+      description: 'Ten minutes every morning before checking the phone. Finished the full 30 days.',
+      progress_pct: 100, streak_days: 30,
+      created_at: now - 70*GOALS_DAY, target_date: now - 40*GOALS_DAY, completed_at: now - 39*GOALS_DAY,
+    },
+    {
+      id: 'g6', title: 'Launch side-business MVP', category: 'Career', difficulty: 'hard', status: 'completed',
+      description: 'Landing page, waitlist, and first five paying customers. Shipped and validated.',
+      progress_pct: 100, streak_days: 0,
+      created_at: now - 160*GOALS_DAY, target_date: now - 90*GOALS_DAY, completed_at: now - 88*GOALS_DAY,
+    },
+    {
+      id: 'g7', title: 'Train for a marathon', category: 'Health', difficulty: 'epic', status: 'paused',
+      description: 'Paused after a minor knee strain — resuming once cleared by physio. Base mileage was going well before the break.',
+      progress_pct: 45, streak_days: 0,
+      created_at: now - 65*GOALS_DAY, target_date: now + 80*GOALS_DAY,
+    },
+    {
+      id: 'g8', title: 'Write a novel draft', category: 'Creative', difficulty: 'hard', status: 'abandoned',
+      description: 'Got to 20k words then priorities shifted. Keeping the notes in case this comes back around.',
+      progress_pct: 20, streak_days: 0,
+      created_at: now - 300*GOALS_DAY, target_date: now - 120*GOALS_DAY,
+    },
+  ];
+}
+
+function fmtRelDay(ms) {
+  const now = Date.now();
+  const days = Math.round((ms - now) / GOALS_DAY);
+  if (days === 0) return 'today';
+  if (days > 0) return 'in ' + days + 'd';
+  return Math.abs(days) + 'd ago';
+}
+function fmtAgeShort(ms) {
+  const days = Math.round((Date.now() - ms) / GOALS_DAY);
+  if (days < 1) return 'today';
+  if (days < 30) return days + 'd ago';
+  if (days < 365) return Math.round(days/30) + 'mo ago';
+  return Math.round(days/365) + 'y ago';
+}
+
+function GoalCard(props) {
+  const g = props.g;
+  const [open, setOpen] = React.useState(false);
+  const diff = DIFFICULTY[g.difficulty];
+  const color = GOAL_STATUS_COLOR[g.status];
+  const overdue = g.status === 'active' && g.target_date < Date.now();
+  const meterColor = overdue ? '#ff7b72' : color;
+  let dateLine;
+  if (g.status === 'completed') dateLine = 'completed ' + fmtAgeShort(g.completed_at);
+  else if (g.status === 'active') dateLine = (overdue ? 'was due ' : 'due ') + fmtRelDay(g.target_date);
+  else dateLine = 'target ' + fmtRelDay(g.target_date);
+  return h('div', {className:'card', style:{cursor:'pointer'}, onClick:()=>setOpen(!open)},
+    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}},
+      h('p', {style:{fontSize:'15px',fontWeight:700,margin:'0 0 2px'}}, g.title),
+      h('span', {className:'pill', style:{background:diff.color+'22', color:diff.color, border:'1px solid '+diff.color+'55'}}, diff.label)),
+    h('div', {style:{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}},
+      h('span', {className:'badge'},
+        h('span', {className:'dot' + (g.status==='active'?' pulse':''), style:{background:color}}),
+        h('span', {style:{color:color}}, g.status)),
+      h('span', {className:'small'}, g.category),
+      h('span', {className:'small'}, '·'),
+      h('span', {className:'small', style:{color: overdue ? '#ff7b72' : '#9aa3ad'}}, dateLine)),
+    h('div', {className:'meter'}, h('div', {style:{width:g.progress_pct+'%', background:meterColor}})),
+    h('div', {className:'small'}, g.progress_pct + '% complete' + (g.streak_days ? '  ·  🔥 ' + g.streak_days + ' day streak' : '')),
+    open ? h('div', {className:'goal-desc'}, g.description) : null);
+}
+
+function Goals(props) {
+  const [goals, setGoals] = React.useState(makeGoalFixtures);
+  const [filter, setFilter] = React.useState('all');
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({title:'', category:'Health', difficulty:'medium', target:''});
+
+  const counts = {active:0, completed:0, paused:0, abandoned:0};
+  goals.forEach(g => { counts[g.status] = (counts[g.status]||0) + 1; });
+  const list = goals.filter(g => filter === 'all' || g.status === filter);
+
+  function addGoal() {
+    const title = form.title.trim();
+    if (!title) { alert('Give the goal a title.'); return; }
+    const target_date = form.target ? new Date(form.target).getTime() : Date.now() + 30*GOALS_DAY;
+    // In-memory only: no supabase.insert() here by design (see NOTE above).
+    setGoals(gs => [{
+      id: 'g' + (Date.now()), title, category: form.category, difficulty: form.difficulty,
+      status: 'active', description: '(no description yet)', progress_pct: 0, streak_days: 0,
+      created_at: Date.now(), target_date,
+    }, ...gs]);
+    setShowAdd(false);
+    setForm({title:'', category:'Health', difficulty:'medium', target:''});
+  }
+
+  return h('div', {id:'goals'},
+    h('div', {className:'summary'},
+      h('span', null, h('b', null, counts.active||0), ' active'),
+      h('span', null, h('b', null, counts.completed||0), ' completed'),
+      h('span', null, h('b', null, counts.paused||0), ' paused'),
+      h('span', null, h('b', null, counts.abandoned||0), ' abandoned')),
+    h('div', {className:'filterbar'},
+      [['all','All'],['active','Active'],['completed','Completed'],['paused','Paused'],['abandoned','Abandoned']].map(([k,label]) =>
+        h('button', {key:k, className:'filterbtn' + (filter===k?' active':''), onClick:()=>setFilter(k)}, label))),
+    showAdd ? h('div', {className:'card'},
+      h('p', {style:{fontSize:'15px',fontWeight:700,margin:'0 0 8px'}}, 'New goal'),
+      h('div', {className:'addform'},
+        h('input', {placeholder:'Goal title', value:form.title, onChange:e=>setForm({...form, title:e.target.value})}),
+        h('div', {className:'row2'},
+          h('select', {value:form.category, onChange:e=>setForm({...form, category:e.target.value})},
+            ['Health','Career','Learning','Creative','Finance'].map(c => h('option', {key:c}, c))),
+          h('select', {value:form.difficulty, onChange:e=>setForm({...form, difficulty:e.target.value})},
+            Object.keys(DIFFICULTY).map(k => h('option', {key:k, value:k}, DIFFICULTY[k].label)))),
+        h('input', {type:'date', value:form.target, onChange:e=>setForm({...form, target:e.target.value})}),
+        h('div', {className:'row2'},
+          h('button', {className:'secondary', onClick:()=>setShowAdd(false)}, 'Cancel'),
+          h('button', {onClick:addGoal}, 'Add goal'))))
+    : h('button', {className:'secondary newgoalbtn', onClick:()=>setShowAdd(true)}, '+ New goal'),
+    list.length ? list.map(g => h(GoalCard, {key:g.id, g})) : h('p', {className:'muted'}, 'No goals in this filter yet.'));
 }
 
 function App() {
