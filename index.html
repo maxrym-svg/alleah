@@ -216,7 +216,8 @@ function Chat(props) {
     : h(React.Fragment, null,
     h('div', {id:'thread'},
       messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
-      messages.map((m, i) => h(React.Fragment, {key:i},
+      messages.map((m, i) =>
+        h(React.Fragment, {key:i},
         h('div', {className:'msg ' + m.role}, m.content),
         m.folders && m.folders.length
           ? h('div', {className:'cites'}, 'memory: ' + m.folders.map(f => '[' + f.n + '] ' + f.title).join('  '))
@@ -376,6 +377,22 @@ function loadGoals() {
   } catch { return []; }
 }
 
+// Fix (due-date bug): <input type="date"> hands back a plain "YYYY-MM-DD" string.
+// That string must be parsed into a real calendar date, not coerced through Number()/
+// parseInt() or otherwise treated as a raw epoch value - either of those reads only
+// the leading digits (e.g. "2025" from "2025-06-15") and produces a millisecond
+// timestamp of just a few seconds after the Unix epoch, i.e. a due date that stores
+// and displays as 20000+ days in the past. Parse the y/m/d components explicitly and
+// build a real local-midnight Date from them so the stored target_date always matches
+// what the user picked.
+function parseDateInputToMs(dateStr) {
+  if (!dateStr) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+  return new Date(year, month - 1, day).getTime();
+}
+
 function fmtRelDay(ms) {
   const now = Date.now();
   const days = Math.round((ms - now) / GOALS_DAY);
@@ -396,7 +413,7 @@ function GoalBox(props) {
   const [open, setOpen] = React.useState(false);
   const diff = DIFFICULTY[g.difficulty];
   const color = GOAL_STATUS_COLOR[g.status];
-  const overdue = g.status === 'active' && g.target_date < Date.now();
+  const overdue = g.status === 'active' && g.target_date != null && g.target_date < Date.now();
   const total = g.objectives.length;
   const done = g.objectives.filter(o => o.done).length;
   const ratio = total ? done / total : 0;
@@ -414,8 +431,8 @@ function GoalBox(props) {
         h('span', {className:'dot' + (g.status==='active'?' pulse':''), style:{background:color}}),
         h('span', {style:{color:color}}, g.status)),
       h('span', {className:'small'}, g.category),
-      h('span', {className:'small'}, '·'),
-      h('span', {className:'small', style:{color: overdue ? '#ff7b72' : '#9aa3ad'}}, dateLine)),
+      g.target_date != null ? h('span', {className:'small'}, '·') : null,
+      g.target_date != null ? h('span', {className:'small', style:{color: overdue ? '#ff7b72' : '#9aa3ad'}}, dateLine) : null),
     h('div', {className:'meter'}, h('div', {style:{width:(ratio*100)+'%', background:meterColor}})),
     h('div', {className:'goal-obj-count'}, done + ' / ' + total + ' mini-objectives'),
     open ? h('div', null,
@@ -448,7 +465,7 @@ function NewGoalForm(props) {
       status: 'active',
       description: description.trim(),
       created_at: Date.now(),
-      target_date: targetDate ? new Date(targetDate).getTime() : null,
+      target_date: parseDateInputToMs(targetDate),
       objectives: [],
     });
   }
