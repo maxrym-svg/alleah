@@ -1,0 +1,54 @@
+name: PR checks (promotion gate)
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Allowlist - refuse non-app-surface files
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > changed.txt
+          cat changed.txt
+          BAD=0
+          while read -r f; do
+            case "$f" in
+              *.sql|*-function.ts|.github/*|*.yml|*.yaml) echo "FORBIDDEN: $f"; BAD=1 ;;
+              *.html|*.css|*.js|*.mjs|*.json|*.svg|*.png|*.ico|*.webmanifest) echo "ok: $f" ;;
+              *) echo "NOT ALLOWLISTED: $f"; BAD=1 ;;
+            esac
+          done < changed.txt
+          exit $BAD
+      - name: Syntax - parse every changed script (inline and standalone)
+        run: |
+          python3 - <<'PYEOF'
+          import re, subprocess, sys, pathlib
+          changed = [l.strip() for l in open('changed.txt') if l.strip()]
+          fail = False
+          def check(code, label, module):
+            global fail
+            p = pathlib.Path('/tmp/chk.mjs' if module else '/tmp/chk.js')
+            p.write_text(code)
+            r = subprocess.run(['node','--check',str(p)], capture_output=True, text=True)
+            if r.returncode != 0:
+              print(f'PARSE FAIL {label}:')
+              print(r.stderr[:2000])
+              fail = True
+            else:
+              print(f'parse ok: {label}')
+          for f in changed:
+            if not pathlib.Path(f).exists(): continue
+            if f.endswith(('.js','.mjs')):
+              check(open(f).read(), f, f.endswith('.mjs'))
+            elif f.endswith('.html'):
+              html = open(f).read()
+              for i, m in enumerate(re.finditer(r'<script([^>]*)>(.*?)</script>', html, re.S)):
+                attrs, body = m.group(1), m.group(2)
+                if 'src=' in attrs or 'application/json' in attrs: continue
+                check(body, f'{f} script#{i}', 'module' in attrs)
+          sys.exit(1 if fail else 0)
+          PYEOF
