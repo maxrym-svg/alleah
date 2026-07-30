@@ -426,7 +426,7 @@ function GoalBox(props) {
             onClick:(e)=>e.stopPropagation(),
           },
           h('input', {type:'checkbox', checked:o.done, onChange:()=>props.onToggle(g.id, o.id)}),
-          h('span', null, o.text)))) : null));
+          h('span', null, o.text))))) : null);
 }
 
 function NewGoalForm(props) {
