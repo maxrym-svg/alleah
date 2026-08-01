@@ -7,6 +7,7 @@ on:
       - ask-function.ts
       - submit-pins-function.ts
       - request-review-function.ts
+      - goal-steps-function.ts
       - .github/workflows/deploy.yml
   workflow_dispatch: {}
 
@@ -23,11 +24,12 @@ jobs:
           version: latest
       - name: Stage functions in CLI layout
         run: |
-          mkdir -p supabase/functions/capture supabase/functions/ask supabase/functions/submit-pins supabase/functions/request-review
+          mkdir -p supabase/functions/capture supabase/functions/ask supabase/functions/submit-pins supabase/functions/request-review supabase/functions/goal-steps
           cp capture-function.ts supabase/functions/capture/index.ts
           cp ask-function.ts supabase/functions/ask/index.ts
           cp submit-pins-function.ts supabase/functions/submit-pins/index.ts
           cp request-review-function.ts supabase/functions/request-review/index.ts
+          cp goal-steps-function.ts supabase/functions/goal-steps/index.ts
       - name: Deploy capture
         run: supabase functions deploy capture --project-ref $PROJECT_REF
       - name: Deploy ask
@@ -36,3 +38,5 @@ jobs:
         run: supabase functions deploy submit-pins --no-verify-jwt --project-ref $PROJECT_REF
       - name: Deploy request-review (public endpoint - no JWT verification by design)
         run: supabase functions deploy request-review --no-verify-jwt --project-ref $PROJECT_REF
+      - name: Deploy goal-steps (authenticated)
+        run: supabase functions deploy goal-steps --project-ref $PROJECT_REF
