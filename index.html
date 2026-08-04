@@ -30,7 +30,7 @@ input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313
 .muted{color:#9aa3ad;font-size:14px}
 .err{color:#ff7b72;font-size:14px;padding:0 14px}
 .typing{align-self:flex-start;color:#9aa3ad;font-size:14px;padding:0 6px}
-#tasks,#goals,#upgrades{flex:1;overflow-y:auto;padding:8px 14px}
+#tasks,#goals{flex:1;overflow-y:auto;padding:8px 14px}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid #2c313a}
 .dot{width:8px;height:8px;border-radius:50%}
 .pulse{animation:pulse 1.5s infinite}
@@ -67,7 +67,6 @@ input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313
 .goal-obj input[type=checkbox]{width:22px;height:22px;flex:none;accent-color:#3ecf8e;cursor:pointer}
 .goal-obj span{font-size:14px}
 .goal-obj.done span{text-decoration:line-through;color:#9aa3ad}
-.goal-generate-btn{margin-top:10px;width:100%}
 .menu-wrap{position:relative}
 .menu-btn{width:46px;height:46px;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:12px;padding:0;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .menu-btn:active{background:#2c313a}
@@ -79,17 +78,6 @@ input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313
 .menu-item.active{background:#3ecf8e;color:#08130d;font-weight:700}
 .menu-item.danger{color:#ff7b72}
 .menu-sep{height:1px;background:#2c313a;margin:6px 6px}
-.chip{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid}
-.score-row{display:flex;gap:14px;margin:8px 0}
-.score-col{flex:1}
-.score-label{display:flex;justify-content:space-between;font-size:11px;color:#9aa3ad;margin-bottom:3px}
-.priority-num{font-size:12px;color:#9aa3ad}
-.priority-num b{color:#e6e6e6;font-size:14px}
-.upgrade-actions{display:flex;gap:8px;margin-top:10px}
-.upgrade-actions button{flex:1;padding:8px 0}
-.reject-btn{background:transparent;border:1px solid #ff7b72;color:#ff7b72}
-.directive-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-.directive-item{background:#12151a;border:1px solid #2c313a;border-radius:10px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -110,7 +98,6 @@ const VIEWS = [
   {key:'chat', label:'Chat'},
   {key:'tasks', label:'Tasks'},
   {key:'goals', label:'Goals'},
-  {key:'upgrades', label:'Upgrades'},
 ];
 
 function HeaderMenu(props) {
@@ -226,7 +213,6 @@ function Chat(props) {
       })),
     view === 'tasks' ? h(Tasks, {session: props.session})
     : view === 'goals' ? h(Goals, null)
-    : view === 'upgrades' ? h(Upgrades, {session: props.session})
     : h(React.Fragment, null,
     h('div', {id:'thread'},
       messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
@@ -422,43 +408,9 @@ function fmtAgeShort(ms) {
   return Math.round(days/365) + 'y ago';
 }
 
-// ===== Mini-objective generation (LOCAL ONLY - no network) =====
-// generateObjectives() used to call out to a live endpoint to synthesize
-// mini-objectives for a goal. That network call has been removed entirely:
-// there is no fetch(), axios, XMLHttpRequest, WebSocket, or any other API
-// client call anywhere in this function or anything it invokes. Instead it
-// picks 3-5 objectives from a small fixed local pool (deduping against any
-// objectives the goal already has) and returns them synchronously. The
-// artificial delay lives only in the caller (see GoalBox's handleGenerate),
-// via a plain setTimeout, purely to preserve the existing loading-state UX.
-const OBJECTIVE_POOL = [
-  'Research neighborhoods',
-  'Calculate budget',
-  'Schedule viewings',
-  'Compare financing options',
-  'Draft a checklist',
-  'Set a target date',
-  'List must-haves',
-  'Review progress with a friend',
-];
-
-function generateObjectives(existingTexts) {
-  const have = new Set(existingTexts || []);
-  const pool = OBJECTIVE_POOL.filter(t => !have.has(t));
-  const count = Math.min(pool.length, 3 + Math.floor(Math.random() * 3)); // 3-5
-  const picked = [];
-  const src = pool.slice();
-  while (picked.length < count && src.length) {
-    const idx = Math.floor(Math.random() * src.length);
-    picked.push(src.splice(idx, 1)[0]);
-  }
-  return picked;
-}
-
 function GoalBox(props) {
   const g = props.g;
   const [open, setOpen] = React.useState(false);
-  const [generating, setGenerating] = React.useState(false);
   const diff = DIFFICULTY[g.difficulty];
   const color = GOAL_STATUS_COLOR[g.status];
   const overdue = g.status === 'active' && g.target_date != null && g.target_date < Date.now();
@@ -470,20 +422,6 @@ function GoalBox(props) {
   if (g.status === 'completed') dateLine = 'completed ' + fmtAgeShort(g.completed_at);
   else if (g.status === 'active') dateLine = (overdue ? 'was due ' : 'due ') + fmtRelDay(g.target_date);
   else dateLine = 'target ' + fmtRelDay(g.target_date);
-
-  function handleGenerate(e) {
-    e.stopPropagation();
-    if (generating) return;
-    setGenerating(true);
-    // Fake latency only, to preserve the loading-state UX. generateObjectives()
-    // itself is a pure local function - nothing here ever hits the network.
-    setTimeout(() => {
-      const picked = generateObjectives(g.objectives.map(o => o.text));
-      props.onGenerate(g.id, picked);
-      setGenerating(false);
-    }, 700);
-  }
-
   return h('div', {className:'goal-box', onClick:()=>setOpen(!open)},
     h('div', {className:'goal-box-head'},
       h('p', {style:{fontSize:'15px',fontWeight:700,margin:'0 0 2px'}}, g.title),
@@ -505,10 +443,7 @@ function GoalBox(props) {
             onClick:(e)=>e.stopPropagation(),
           },
           h('input', {type:'checkbox', checked:o.done, onChange:()=>props.onToggle(g.id, o.id)}),
-          h('span', null, o.text)))),
-      h('button', {
-        type:'button', className:'secondary goal-generate-btn', disabled:generating, onClick:handleGenerate,
-      }, generating ? 'Generating…' : '+ Generate mini-objectives')) : null);
+          h('span', null, o.text))))) : null);
 }
 
 function NewGoalForm(props) {
@@ -563,18 +498,6 @@ function Goals(props) {
     }));
   }
 
-  function addGeneratedObjectives(goalId, texts) {
-    // Appends locally-generated mini-objectives (see generateObjectives() above).
-    // Same localStorage-only persistence path as every other goals mutation here.
-    setGoals(gs => gs.map(g => g.id !== goalId ? g : {
-      ...g,
-      objectives: [...g.objectives, ...texts.map(text => ({
-        id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-        text, done: false,
-      }))],
-    }));
-  }
-
   function addGoal(g) {
     setGoals(gs => [g, ...gs]);
     setShowForm(false);
@@ -595,129 +518,7 @@ function Goals(props) {
         h('div', {className:'goal-connector'},
           h('span', {className:'goal-node-dot', style:{color: GOAL_STATUS_COLOR[g.status]}}),
           i < goals.length - 1 ? h('span', {className:'goal-node-line'}) : null),
-        h(GoalBox, {g, onToggle: toggleObjective, onGenerate: addGeneratedObjectives})))) : null);
-}
-
-// ===== Upgrades tab =====
-// Reads/writes exactly two tables: optimization_proposals (select all own rows,
-// ordered by priority desc; update status on approve/reject) and research_directives
-// (insert only, from the queue-a-question form below the list). See migration 006.
-const BENEFIT_TYPES = {
-  ui_improvement:    {label: 'UI improvement',    color: '#58a6ff'},
-  efficiency_upgrade:{label: 'Efficiency upgrade',color: '#3ecf8e'},
-  feature_update:    {label: 'Feature update',    color: '#d68fff'},
-  new_feature:       {label: 'New feature',       color: '#ffd166'},
-  bug_fix:           {label: 'Bug fix',           color: '#ff7b72'},
-};
-const PROPOSAL_STATUS = {
-  proposed: {label: 'Proposed', color: '#9aa3ad'},
-  approved: {label: 'Approved', color: '#58a6ff'},
-  building: {label: 'Building', color: '#e0a458'},
-  done:     {label: 'Done',     color: '#3ecf8e'},
-  rejected: {label: 'Rejected', color: '#ff7b72'},
-};
-const STATUS_FILTERS = ['all', 'proposed', 'approved', 'building', 'done', 'rejected'];
-
-function UpgradeCard(props) {
-  const p = props.p;
-  const benefit = BENEFIT_TYPES[p.benefit_type] || {label: p.benefit_type, color: '#9aa3ad'};
-  const status = PROPOSAL_STATUS[p.status] || {label: p.status, color: '#9aa3ad'};
-  return h('div', {className:'card'},
-    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}},
-      h('span', {className:'chip', style:{background:benefit.color+'22', color:benefit.color, borderColor:benefit.color+'55'}}, benefit.label),
-      h('span', {className:'badge'},
-        h('span', {className:'dot', style:{background:status.color}}),
-        h('span', {style:{color:status.color}}, status.label))),
-    h('p', {style:{fontSize:'15px',fontWeight:700,margin:'10px 0 2px'}}, p.title),
-    h('p', {className:'small', style:{fontSize:'13.5px',color:'#c7ccd3',margin:'2px 0 0'}}, p.summary),
-    h('div', {className:'score-row'},
-      h('div', {className:'score-col'},
-        h('div', {className:'score-label'}, h('span', null, 'Functionality'), h('span', null, p.functionality_score + '/10')),
-        h('div', {className:'meter'}, h('div', {style:{width:(p.functionality_score*10)+'%', background:'#3ecf8e'}}))),
-      h('div', {className:'score-col'},
-        h('div', {className:'score-label'}, h('span', null, 'Cost'), h('span', null, p.cost_score + '/10')),
-        h('div', {className:'meter'}, h('div', {style:{width:(p.cost_score*10)+'%', background:'#e0a458'}})))),
-    h('div', {className:'priority-num'}, 'Priority score: ', h('b', null, (p.functionality_score - p.cost_score))),
-    p.status === 'proposed' ? h('div', {className:'upgrade-actions'},
-      h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'approved')}, 'Approve'),
-      h('button', {type:'button', className:'reject-btn', onClick:()=>props.onDecide(p.id, 'rejected')}, 'Reject')) : null);
-}
-
-function ResearchDirectiveForm(props) {
-  const [text, setText] = React.useState('');
-  const [priority, setPriority] = React.useState('3');
-  const [busy, setBusy] = React.useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    const t = text.trim();
-    if (!t || busy) return;
-    setBusy(true);
-    await props.onSubmit(t, Number(priority));
-    setBusy(false);
-    setText(''); setPriority('3');
-  }
-
-  return h('form', {className:'card addform', onSubmit:submit},
-    h('p', {style:{fontSize:'14px',fontWeight:700,margin:'0 0 2px'}}, 'Queue a research question'),
-    h('textarea', {
-      placeholder:'What should Alleah look into?', value:text, rows:3,
-      style:{minHeight:'70px'}, onChange:e=>setText(e.target.value),
-    }),
-    h('div', {className:'row2'},
-      h('select', {value:priority, onChange:e=>setPriority(e.target.value)},
-        [1,2,3,4,5].map(n => h('option', {key:n, value:n}, 'Priority ' + n + (n===1?' (low)':n===5?' (high)':'')))),
-      h('button', {type:'submit', disabled:busy || !text.trim()}, busy ? 'Queuing...' : 'Queue question')));
-}
-
-function Upgrades(props) {
-  const [proposals, setProposals] = React.useState([]);
-  const [filter, setFilter] = React.useState('all');
-  const [msg, setMsg] = React.useState('loading...');
-  const [directiveMsg, setDirectiveMsg] = React.useState('');
-
-  async function load() {
-    const r = await supabase.from('optimization_proposals').select('*').order('priority', {ascending:false});
-    if (r.error) { setMsg('Error: ' + r.error.message); return; }
-    setProposals(r.data);
-    setMsg(r.data.length ? '' : 'No proposals yet. Alleah will file these as she finds them.');
-  }
-  React.useEffect(() => { load(); }, []);
-
-  async function decide(id, status) {
-    const prev = proposals;
-    setProposals(ps => ps.map(p => p.id === id ? {...p, status} : p)); // optimistic
-    const r = await supabase.from('optimization_proposals').update({status}).eq('id', id);
-    if (r.error) { setProposals(prev); setMsg('Error: ' + r.error.message); }
-  }
-
-  async function queueDirective(directive_text, priority) {
-    const r = await supabase.from('research_directives').insert({directive_text, priority});
-    setDirectiveMsg(r.error ? 'Error: ' + r.error.message : 'Question queued.');
-    setTimeout(() => setDirectiveMsg(''), 3000);
-  }
-
-  const visible = filter === 'all' ? proposals : proposals.filter(p => p.status === filter);
-  const counts = STATUS_FILTERS.reduce((acc, f) => {
-    acc[f] = f === 'all' ? proposals.length : proposals.filter(p => p.status === f).length;
-    return acc;
-  }, {});
-
-  return h('div', {id:'upgrades'},
-    h('div', {className:'filterbar'},
-      STATUS_FILTERS.map(f => h('button', {
-        key:f, type:'button', className:'filterbtn' + (filter === f ? ' active' : ''),
-        onClick:() => setFilter(f),
-      }, (PROPOSAL_STATUS[f] ? PROPOSAL_STATUS[f].label : 'All') + ' (' + counts[f] + ')'))),
-    proposals.length ? h('div', {className:'summary'},
-      h('span', null, h('b', null, proposals.length), ' total'),
-      STATUS_FILTERS.filter(f => f !== 'all').map(f => h('span', {key:f},
-        h('b', null, counts[f]), ' ' + PROPOSAL_STATUS[f].label.toLowerCase()))) : null,
-    msg ? h('p', {className:'muted'}, msg) : null,
-    visible.map(p => h(UpgradeCard, {key:p.id, p, onDecide:decide})),
-    visible.length === 0 && proposals.length > 0 ? h('p', {className:'muted', style:{padding:'8px 2px'}}, 'No proposals match this filter.') : null,
-    h(ResearchDirectiveForm, {onSubmit:queueDirective}),
-    directiveMsg ? h('p', {className:'small', style:{color:'#3ecf8e'}}, directiveMsg) : null);
+        h(GoalBox, {g, onToggle: toggleObjective})))) : null);
 }
 
 function App() {
