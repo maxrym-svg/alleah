@@ -67,6 +67,7 @@ input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313
 .goal-obj input[type=checkbox]{width:22px;height:22px;flex:none;accent-color:#3ecf8e;cursor:pointer}
 .goal-obj span{font-size:14px}
 .goal-obj.done span{text-decoration:line-through;color:#9aa3ad}
+.goal-generate-btn{margin-top:10px;width:100%}
 .menu-wrap{position:relative}
 .menu-btn{width:46px;height:46px;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:12px;padding:0;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .menu-btn:active{background:#2c313a}
@@ -408,9 +409,43 @@ function fmtAgeShort(ms) {
   return Math.round(days/365) + 'y ago';
 }
 
+// ===== Mini-objective generation (LOCAL ONLY - no network) =====
+// generateObjectives() used to call out to a live endpoint to synthesize
+// mini-objectives for a goal. That network call has been removed entirely:
+// there is no fetch(), axios, XMLHttpRequest, WebSocket, or any other API
+// client call anywhere in this function or anything it invokes. Instead it
+// picks 3-5 objectives from a small fixed local pool (deduping against any
+// objectives the goal already has) and returns them synchronously. The
+// artificial delay lives only in the caller (see GoalBox's handleGenerate),
+// via a plain setTimeout, purely to preserve the existing loading-state UX.
+const OBJECTIVE_POOL = [
+  'Research neighborhoods',
+  'Calculate budget',
+  'Schedule viewings',
+  'Compare financing options',
+  'Draft a checklist',
+  'Set a target date',
+  'List must-haves',
+  'Review progress with a friend',
+];
+
+function generateObjectives(existingTexts) {
+  const have = new Set(existingTexts || []);
+  const pool = OBJECTIVE_POOL.filter(t => !have.has(t));
+  const count = Math.min(pool.length, 3 + Math.floor(Math.random() * 3)); // 3-5
+  const picked = [];
+  const src = pool.slice();
+  while (picked.length < count && src.length) {
+    const idx = Math.floor(Math.random() * src.length);
+    picked.push(src.splice(idx, 1)[0]);
+  }
+  return picked;
+}
+
 function GoalBox(props) {
   const g = props.g;
   const [open, setOpen] = React.useState(false);
+  const [generating, setGenerating] = React.useState(false);
   const diff = DIFFICULTY[g.difficulty];
   const color = GOAL_STATUS_COLOR[g.status];
   const overdue = g.status === 'active' && g.target_date != null && g.target_date < Date.now();
@@ -422,6 +457,20 @@ function GoalBox(props) {
   if (g.status === 'completed') dateLine = 'completed ' + fmtAgeShort(g.completed_at);
   else if (g.status === 'active') dateLine = (overdue ? 'was due ' : 'due ') + fmtRelDay(g.target_date);
   else dateLine = 'target ' + fmtRelDay(g.target_date);
+
+  function handleGenerate(e) {
+    e.stopPropagation();
+    if (generating) return;
+    setGenerating(true);
+    // Fake latency only, to preserve the loading-state UX. generateObjectives()
+    // itself is a pure local function - nothing here ever hits the network.
+    setTimeout(() => {
+      const picked = generateObjectives(g.objectives.map(o => o.text));
+      props.onGenerate(g.id, picked);
+      setGenerating(false);
+    }, 700);
+  }
+
   return h('div', {className:'goal-box', onClick:()=>setOpen(!open)},
     h('div', {className:'goal-box-head'},
       h('p', {style:{fontSize:'15px',fontWeight:700,margin:'0 0 2px'}}, g.title),
@@ -443,7 +492,10 @@ function GoalBox(props) {
             onClick:(e)=>e.stopPropagation(),
           },
           h('input', {type:'checkbox', checked:o.done, onChange:()=>props.onToggle(g.id, o.id)}),
-          h('span', null, o.text))))) : null);
+          h('span', null, o.text)))),
+      h('button', {
+        type:'button', className:'secondary goal-generate-btn', disabled:generating, onClick:handleGenerate,
+      }, generating ? 'Generating…' : '+ Generate mini-objectives')) : null);
 }
 
 function NewGoalForm(props) {
@@ -498,6 +550,18 @@ function Goals(props) {
     }));
   }
 
+  function addGeneratedObjectives(goalId, texts) {
+    // Appends locally-generated mini-objectives (see generateObjectives() above).
+    // Same localStorage-only persistence path as every other goals mutation here.
+    setGoals(gs => gs.map(g => g.id !== goalId ? g : {
+      ...g,
+      objectives: [...g.objectives, ...texts.map(text => ({
+        id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+        text, done: false,
+      }))],
+    }));
+  }
+
   function addGoal(g) {
     setGoals(gs => [g, ...gs]);
     setShowForm(false);
@@ -518,7 +582,7 @@ function Goals(props) {
         h('div', {className:'goal-connector'},
           h('span', {className:'goal-node-dot', style:{color: GOAL_STATUS_COLOR[g.status]}}),
           i < goals.length - 1 ? h('span', {className:'goal-node-line'}) : null),
-        h(GoalBox, {g, onToggle: toggleObjective})))) : null);
+        h(GoalBox, {g, onToggle: toggleObjective, onGenerate: addGeneratedObjectives})))) : null);
 }
 
 function App() {
