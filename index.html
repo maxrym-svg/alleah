@@ -577,6 +577,49 @@ function Goals(props) {
         h(GoalBox, {g, onToggle: toggleObjective, onGenerate: generateFor, generating: !!generating[g.id], genErr: genErr[g.id] || ''})))) : null);
 }
 
+function UpgradeCard(props) {
+  const p = props.p;
+  const benefit = BENEFIT_TYPES[p.benefit_type] || {label: p.benefit_type, color: '#9aa3ad'};
+  const status = PROPOSAL_STATUS[p.status] || {label: p.status, color: '#9aa3ad'};
+  return h('div', {className:'card'},
+    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}},
+      h('span', {className:'chip', style:{background:benefit.color+'22', color:benefit.color, borderColor:benefit.color+'55'}}, benefit.label),
+      h('span', {className:'badge'},
+        h('span', {className:'dot', style:{background:status.color}}),
+        h('span', {style:{color:status.color}}, status.label))),
+    h('p', {style:{fontSize:'15px',fontWeight:700,margin:'10px 0 2px'}}, p.title),
+    h('p', {className:'small', style:{fontSize:'13.5px',color:'#c7ccd3',margin:'2px 0 0'}}, p.summary),
+    h('div', {className:'score-row'},
+      h('div', {className:'score-col'},
+        h('div', {className:'score-label'}, h('span', null, 'Functionality'), h('span', null, p.functionality_score + '/10')),
+        h('div', {className:'meter'}, h('div', {style:{width:(p.functionality_score*10)+'%', background:'#3ecf8e'}}))),
+      h('div', {className:'score-col'},
+        h('div', {className:'score-label'}, h('span', null, 'Cost'), h('span', null, p.cost_score + '/10')),
+        h('div', {className:'meter'}, h('div', {style:{width:(p.cost_score*10)+'%', background:'#e0a458'}})))),
+    h('div', {className:'priority-num'}, 'Priority score: ', h('b', null, (p.functionality_score - p.cost_score))),
+    p.status === 'proposed' ? h('div', {className:'upgrade-actions'},
+      h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'approved')}, 'Approve'),
+      h('button', {type:'button', className:'reject-btn', onClick:()=>props.onDecide(p.id, 'rejected')}, 'Reject')) : null);
+}
+
+const PROPOSAL_STATUS = {
+  proposed: {label: 'Proposed', color: '#9aa3ad'},
+  approved: {label: 'Approved', color: '#58a6ff'},
+  building: {label: 'Building', color: '#e0a458'},
+  done:     {label: 'Done',     color: '#3ecf8e'},
+  rejected: {label: 'Rejected', color: '#ff7b72'},
+};
+
+const STATUS_FILTERS = ['all', 'proposed', 'approved', 'building', 'done', 'rejected'];
+
+const BENEFIT_TYPES = {
+  ui_improvement:    {label: 'UI improvement',    color: '#58a6ff'},
+  efficiency_upgrade:{label: 'Efficiency upgrade',color: '#3ecf8e'},
+  feature_update:    {label: 'Feature update',    color: '#d68fff'},
+  new_feature:       {label: 'New feature',       color: '#ffd166'},
+  bug_fix:           {label: 'Bug fix',           color: '#ff7b72'},
+};
+
 function ResearchDirectiveForm(props) {
   const [text, setText] = React.useState('');
   const [priority, setPriority] = React.useState('3');
