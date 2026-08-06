@@ -78,6 +78,10 @@ input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313
 .menu-item.active{background:#3ecf8e;color:#08130d;font-weight:700}
 .menu-item.danger{color:#ff7b72}
 .menu-sep{height:1px;background:#2c313a;margin:6px 6px}
+.upgrade-actions{display:flex;gap:8px;margin-top:10px}
+.upgrade-actions button{flex:1;padding:8px 0}
+.directive-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.directive-item{background:#12151a;border:1px solid #2c313a;border-radius:10px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -98,6 +102,7 @@ const VIEWS = [
   {key:'chat', label:'Chat'},
   {key:'tasks', label:'Tasks'},
   {key:'goals', label:'Goals'},
+  {key:'upgrades', label:'Upgrades'},
 ];
 
 function HeaderMenu(props) {
@@ -213,6 +218,7 @@ function Chat(props) {
       })),
     view === 'tasks' ? h(Tasks, {session: props.session})
     : view === 'goals' ? h(Goals, null)
+    : view === 'upgrades' ? h(Upgrades, {session: props.session})
     : h(React.Fragment, null,
     h('div', {id:'thread'},
       messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
@@ -377,6 +383,31 @@ function loadGoals() {
   } catch { return []; }
 }
 
+// Real mini-objective generation via the goal-steps Edge Function (Haiku).
+// The rolled-back app had NO generation path, and the briefly-promoted
+// version faked it from a fixed local list (the "research neighborhoods"
+// bug). Steps come from the backend built for exactly this; failures
+// surface as a message, never as canned filler.
+async function generateObjectivesFor(goal) {
+  const s = await supabase.auth.getSession();
+  const token = s.data && s.data.session ? s.data.session.access_token : null;
+  if (!token) throw new Error('not signed in');
+  const res = await fetch(SB_URL + '/functions/v1/goal-steps', {
+    method: 'POST',
+    headers: {'content-type':'application/json', 'authorization':'Bearer ' + token},
+    body: JSON.stringify({title: goal.title, description: goal.description, difficulty: goal.difficulty}),
+  });
+  if (!res.ok) throw new Error('generation failed (' + res.status + ')');
+  const data = await res.json();
+  if (!Array.isArray(data.steps) || !data.steps.length) throw new Error('no steps returned');
+  return data.steps.map((t, i) => ({
+    id: 'o' + Date.now().toString(36) + i,
+    text: String(t).slice(0, 120),
+    done: false,
+  }));
+}
+
+
 // Fix (due-date bug): <input type="date"> hands back a plain "YYYY-MM-DD" string.
 // That string must be parsed into a real calendar date, not coerced through Number()/
 // parseInt() or otherwise treated as a raw epoch value - either of those reads only
@@ -437,6 +468,14 @@ function GoalBox(props) {
     h('div', {className:'goal-obj-count'}, done + ' / ' + total + ' mini-objectives'),
     open ? h('div', null,
       h('div', {className:'goal-desc'}, g.description),
+      h('div', {className:'row', style:{margin:'6px 0'}},
+        h('button', {
+          type:'button', className:'secondary',
+          disabled: props.generating,
+          onClick:(e)=>{ e.stopPropagation(); props.onGenerate(g); },
+        }, props.generating ? 'Generating steps...'
+           : (g.objectives.length ? 'Regenerate steps' : 'Generate steps'))),
+      props.genErr ? h('p', {className:'small', style:{color:'#ff7b72'}}, props.genErr) : null,
       h('div', {className:'goal-checklist'},
         g.objectives.map(o => h('label', {
             key:o.id, className:'goal-obj' + (o.done ? ' done' : ''),
@@ -498,9 +537,26 @@ function Goals(props) {
     }));
   }
 
+  const [generating, setGenerating] = React.useState({});
+  const [genErr, setGenErr] = React.useState({});
+
+  function applyObjectives(goalId, objectives) {
+    setGoals(gs => gs.map(g => g.id !== goalId ? g : {...g, objectives}));
+  }
+
+  function generateFor(g) {
+    setGenerating(m => ({...m, [g.id]: true}));
+    setGenErr(m => ({...m, [g.id]: ''}));
+    generateObjectivesFor(g)
+      .then(objs => applyObjectives(g.id, objs))
+      .catch(e => setGenErr(m => ({...m, [g.id]: String(e.message || e)})))
+      .finally(() => setGenerating(m => ({...m, [g.id]: false})));
+  }
+
   function addGoal(g) {
     setGoals(gs => [g, ...gs]);
     setShowForm(false);
+    generateFor(g); // steps arrive async; goal is usable immediately
   }
 
   return h('div', {id:'goals'},
@@ -518,7 +574,84 @@ function Goals(props) {
         h('div', {className:'goal-connector'},
           h('span', {className:'goal-node-dot', style:{color: GOAL_STATUS_COLOR[g.status]}}),
           i < goals.length - 1 ? h('span', {className:'goal-node-line'}) : null),
-        h(GoalBox, {g, onToggle: toggleObjective})))) : null);
+        h(GoalBox, {g, onToggle: toggleObjective, onGenerate: generateFor, generating: !!generating[g.id], genErr: genErr[g.id] || ''})))) : null);
+}
+
+function ResearchDirectiveForm(props) {
+  const [text, setText] = React.useState('');
+  const [priority, setPriority] = React.useState('3');
+  const [busy, setBusy] = React.useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    await props.onSubmit(t, Number(priority));
+    setBusy(false);
+    setText(''); setPriority('3');
+  }
+
+  return h('form', {className:'card addform', onSubmit:submit},
+    h('p', {style:{fontSize:'14px',fontWeight:700,margin:'0 0 2px'}}, 'Queue a research question'),
+    h('textarea', {
+      placeholder:'What should Alleah look into?', value:text, rows:3,
+      style:{minHeight:'70px'}, onChange:e=>setText(e.target.value),
+    }),
+    h('div', {className:'row2'},
+      h('select', {value:priority, onChange:e=>setPriority(e.target.value)},
+        [1,2,3,4,5].map(n => h('option', {key:n, value:n}, 'Priority ' + n + (n===1?' (low)':n===5?' (high)':'')))),
+      h('button', {type:'submit', disabled:busy || !text.trim()}, busy ? 'Queuing...' : 'Queue question')));
+}
+
+function Upgrades(props) {
+  const [proposals, setProposals] = React.useState([]);
+  const [filter, setFilter] = React.useState('all');
+  const [msg, setMsg] = React.useState('loading...');
+  const [directiveMsg, setDirectiveMsg] = React.useState('');
+
+  async function load() {
+    const r = await supabase.from('optimization_proposals').select('*').order('priority', {ascending:false});
+    if (r.error) { setMsg('Error: ' + r.error.message); return; }
+    setProposals(r.data);
+    setMsg(r.data.length ? '' : 'No proposals yet. Alleah will file these as she finds them.');
+  }
+  React.useEffect(() => { load(); }, []);
+
+  async function decide(id, status) {
+    const prev = proposals;
+    setProposals(ps => ps.map(p => p.id === id ? {...p, status} : p)); // optimistic
+    const r = await supabase.from('optimization_proposals').update({status}).eq('id', id);
+    if (r.error) { setProposals(prev); setMsg('Error: ' + r.error.message); }
+  }
+
+  async function queueDirective(directive_text, priority) {
+    const r = await supabase.from('research_directives').insert({directive_text, priority});
+    setDirectiveMsg(r.error ? 'Error: ' + r.error.message : 'Question queued.');
+    setTimeout(() => setDirectiveMsg(''), 3000);
+  }
+
+  const visible = filter === 'all' ? proposals : proposals.filter(p => p.status === filter);
+  const counts = STATUS_FILTERS.reduce((acc, f) => {
+    acc[f] = f === 'all' ? proposals.length : proposals.filter(p => p.status === f).length;
+    return acc;
+  }, {});
+
+  return h('div', {id:'upgrades'},
+    h('div', {className:'filterbar'},
+      STATUS_FILTERS.map(f => h('button', {
+        key:f, type:'button', className:'filterbtn' + (filter === f ? ' active' : ''),
+        onClick:() => setFilter(f),
+      }, (PROPOSAL_STATUS[f] ? PROPOSAL_STATUS[f].label : 'All') + ' (' + counts[f] + ')'))),
+    proposals.length ? h('div', {className:'summary'},
+      h('span', null, h('b', null, proposals.length), ' total'),
+      STATUS_FILTERS.filter(f => f !== 'all').map(f => h('span', {key:f},
+        h('b', null, counts[f]), ' ' + PROPOSAL_STATUS[f].label.toLowerCase()))) : null,
+    msg ? h('p', {className:'muted'}, msg) : null,
+    visible.map(p => h(UpgradeCard, {key:p.id, p, onDecide:decide})),
+    visible.length === 0 && proposals.length > 0 ? h('p', {className:'muted', style:{padding:'8px 2px'}}, 'No proposals match this filter.') : null,
+    h(ResearchDirectiveForm, {onSubmit:queueDirective}),
+    directiveMsg ? h('p', {className:'small', style:{color:'#3ecf8e'}}, directiveMsg) : null);
 }
 
 function App() {
