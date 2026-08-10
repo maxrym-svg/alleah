@@ -599,7 +599,10 @@ function UpgradeCard(props) {
     h('div', {className:'priority-num'}, 'Priority score: ', h('b', null, (p.functionality_score - p.cost_score))),
     p.status === 'proposed' ? h('div', {className:'upgrade-actions'},
       h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'approved')}, 'Approve'),
-      h('button', {type:'button', className:'reject-btn', onClick:()=>props.onDecide(p.id, 'rejected')}, 'Reject')) : null);
+      h('button', {type:'button', className:'reject-btn', onClick:()=>props.onDecide(p.id, 'rejected')}, 'Reject'))
+    : (p.status === 'approved' || p.status === 'building') ? h('div', {className:'upgrade-actions'},
+      h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'done')}, 'Mark done'))
+    : null);
 }
 
 const PROPOSAL_STATUS = {
@@ -610,7 +613,9 @@ const PROPOSAL_STATUS = {
   rejected: {label: 'Rejected', color: '#ff7b72'},
 };
 
-const STATUS_FILTERS = ['all', 'proposed', 'approved', 'building', 'done', 'rejected'];
+const OPEN_STATUSES = ['proposed', 'approved', 'building'];
+const STATUS_FILTERS = ['open', 'done', 'rejected', 'all'];
+const FILTER_LABELS = {open: 'Open', done: 'Completed', rejected: 'Rejected', all: 'All'};
 
 const BENEFIT_TYPES = {
   ui_improvement:    {label: 'UI improvement',    color: '#58a6ff'},
@@ -649,7 +654,7 @@ function ResearchDirectiveForm(props) {
 
 function Upgrades(props) {
   const [proposals, setProposals] = React.useState([]);
-  const [filter, setFilter] = React.useState('all');
+  const [filter, setFilter] = React.useState('open');
   const [msg, setMsg] = React.useState('loading...');
   const [directiveMsg, setDirectiveMsg] = React.useState('');
 
@@ -674,9 +679,13 @@ function Upgrades(props) {
     setTimeout(() => setDirectiveMsg(''), 3000);
   }
 
-  const visible = filter === 'all' ? proposals : proposals.filter(p => p.status === filter);
+  const visible = filter === 'all' ? proposals
+    : filter === 'open' ? proposals.filter(p => OPEN_STATUSES.includes(p.status))
+    : proposals.filter(p => p.status === filter);
   const counts = STATUS_FILTERS.reduce((acc, f) => {
-    acc[f] = f === 'all' ? proposals.length : proposals.filter(p => p.status === f).length;
+    acc[f] = f === 'all' ? proposals.length
+      : f === 'open' ? proposals.filter(p => OPEN_STATUSES.includes(p.status)).length
+      : proposals.filter(p => p.status === f).length;
     return acc;
   }, {});
 
@@ -685,11 +694,11 @@ function Upgrades(props) {
       STATUS_FILTERS.map(f => h('button', {
         key:f, type:'button', className:'filterbtn' + (filter === f ? ' active' : ''),
         onClick:() => setFilter(f),
-      }, (PROPOSAL_STATUS[f] ? PROPOSAL_STATUS[f].label : 'All') + ' (' + counts[f] + ')'))),
+      }, FILTER_LABELS[f] + ' (' + counts[f] + ')'))),
     proposals.length ? h('div', {className:'summary'},
       h('span', null, h('b', null, proposals.length), ' total'),
       STATUS_FILTERS.filter(f => f !== 'all').map(f => h('span', {key:f},
-        h('b', null, counts[f]), ' ' + PROPOSAL_STATUS[f].label.toLowerCase()))) : null,
+        h('b', null, counts[f]), ' ' + FILTER_LABELS[f].toLowerCase()))) : null,
     msg ? h('p', {className:'muted'}, msg) : null,
     visible.map(p => h(UpgradeCard, {key:p.id, p, onDecide:decide})),
     visible.length === 0 && proposals.length > 0 ? h('p', {className:'muted', style:{padding:'8px 2px'}}, 'No proposals match this filter.') : null,
