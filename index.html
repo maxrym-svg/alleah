@@ -22,6 +22,7 @@ h1{font-size:18px;margin:0}
 textarea{flex:1;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:120px}
 button{background:#3ecf8e;color:#08130d;border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
 button.secondary{background:#2c313a;color:#e6e6e6;font-size:13px;padding:6px 12px;border-radius:8px}
+button.stop-btn{background:#ff7b72;color:#2b0d0b}
 button:disabled{opacity:.5}
 input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
 .auth{padding:16px 14px}
@@ -82,6 +83,21 @@ input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313
 .upgrade-actions button{flex:1;padding:8px 0}
 .directive-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .directive-item{background:#12151a;border:1px solid #2c313a;border-radius:10px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.msg.pending{display:flex;flex-direction:column;gap:4px}
+.stream-wrap{display:grid}
+.stream-wrap>*{grid-area:1/1}
+.think-row{display:inline-flex;align-items:center;gap:8px;transition:opacity .25s ease}
+.think-row.fade-out{opacity:0}
+.think-label{font-size:13px;color:#9aa3ad}
+.think-dots{display:inline-flex;gap:5px;padding:4px 2px;align-items:center}
+.think-dot{font-size:16px;line-height:1;color:#9aa3ad;animation:think-bounce 1.1s infinite ease-in-out}
+@keyframes think-bounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+.stream-text{opacity:0;transition:opacity .25s ease;white-space:pre-wrap;word-wrap:break-word}
+.stream-text.show{opacity:1}
+.stream-cursor{display:inline-block;width:2px;height:1em;background:#9aa3ad;vertical-align:text-bottom;margin-left:1px;animation:cursor-blink 1s step-start infinite}
+@keyframes cursor-blink{50%{opacity:0}}
+.interrupted-note{font-size:12px;color:#e0a458;font-style:italic;margin-top:2px}
+.pending-stop{align-self:flex-start;margin-top:2px}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -171,37 +187,190 @@ function Auth() {
     msg ? h('p', {className:'muted'}, msg) : null);
 }
 
+// ===== Calibrated thinking/streaming indicator =====
+// Tuning knobs for the "thinking" -> stream cross-fade -> done lifecycle.
+// MIN_THINK_MS: the three-dot state is held at least this long even when the
+// backend answers instantly, so it never flashes for <300ms nor feels abrupt.
+const MIN_THINK_MS = 400; // within the calibrated 300-500ms band
+const CROSSFADE_MS = 250; // dots-to-text cross-fade duration, mirrors the CSS transition
+const REVEAL_CHARS_PER_TICK = 3;
+const REVEAL_TICK_MS = 16; // ~60fps token-by-token reveal
+
+// Text ("Thinking" + literal dot characters), not just a CSS animation on empty
+// nodes - so the indicator is detectable by reading rendered text/accessible
+// name, not only by pixel inspection. role=status announces the state change.
+function ThinkingDots(props) {
+  return h('div', {className:'think-row' + (props.fading ? ' fade-out' : ''), role:'status', 'aria-live':'polite', 'aria-label':'Alleah is thinking'},
+    h('span', {className:'think-label'}, 'Thinking'),
+    h('span', {className:'think-dots'},
+      h('span', {className:'think-dot', style:{animationDelay:'0s'}}, '\u2022'),
+      h('span', {className:'think-dot', style:{animationDelay:'.15s'}}, '\u2022'),
+      h('span', {className:'think-dot', style:{animationDelay:'.3s'}}, '\u2022')));
+}
+
+// Renders the single in-flight assistant turn through every phase:
+// thinking (dots) -> crossfade (dots fading out over incoming text) ->
+// streaming (token-by-token text) -> interrupted (Stop was clicked).
+function PendingBubble(props) {
+  const p = props.p;
+  if (p.phase === 'interrupted') {
+    const hasPartial = !!(p.revealed && p.revealed.length);
+    return h('div', {className:'msg assistant pending', 'data-phase':p.phase},
+      hasPartial ? h('span', null, p.revealed) : null,
+      h('div', {className:'interrupted-note'}, hasPartial ? 'Generation stopped.' : 'Stopped before generating a response.'),
+      h('div', {className:'upgrade-actions'},
+        hasPartial ? h('button', {type:'button', className:'secondary', onClick:props.onContinue}, 'Continue') : null,
+        h('button', {type:'button', className:'secondary', onClick:props.onRegenerate}, 'Regenerate')));
+  }
+  const showDots = p.phase === 'thinking' || p.phase === 'crossfade';
+  const showText = p.phase === 'crossfade' || p.phase === 'streaming';
+  return h('div', {className:'msg assistant pending', 'data-phase':p.phase},
+    h('div', {className:'stream-wrap'},
+      showDots ? h(ThinkingDots, {fading: p.phase === 'crossfade'}) : null,
+      showText ? h('span', {className:'stream-text show'},
+        p.revealed, h('span', {className:'stream-cursor'})) : null));
+}
+
 function Chat(props) {
   const [messages, setMessages] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
   });
   const [text, setText] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
+  const [pending, setPending] = React.useState(null); // {phase, revealed, fullAnswer, folders}
   const [err, setErr] = React.useState('');
   const [view, setView] = React.useState('chat');
   const endRef = React.useRef(null);
+  const pendingRef = React.useRef(null);
+  const abortRef = React.useRef(null);
+  const revealTimerRef = React.useRef(null);
+  const guardTimerRef = React.useRef(null);
+  const crossfadeTimerRef = React.useRef(null);
+  const lastTurnsRef = React.useRef(null);
+  const generating = !!pending && pending.phase !== 'interrupted';
+
   React.useEffect(() => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-60)));
     endRef.current && endRef.current.scrollIntoView({behavior:'smooth'});
-  }, [messages, busy]);
+  }, [messages, pending]);
 
-  async function send() {
-    const content = text.trim();
-    if (!content || busy) return;
-    setErr(''); setText('');
-    const next = [...messages, {role:'user', content}];
-    setMessages(next); setBusy(true);
+  React.useEffect(() => () => {
+    clearTimers();
+    if (abortRef.current) abortRef.current.abort();
+  }, []);
+
+  function updatePending(patch) {
+    pendingRef.current = pendingRef.current ? {...pendingRef.current, ...patch} : patch;
+    setPending(pendingRef.current);
+  }
+
+  function clearTimers() {
+    if (revealTimerRef.current) { clearInterval(revealTimerRef.current); revealTimerRef.current = null; }
+    if (guardTimerRef.current) { clearTimeout(guardTimerRef.current); guardTimerRef.current = null; }
+    if (crossfadeTimerRef.current) { clearTimeout(crossfadeTimerRef.current); crossfadeTimerRef.current = null; }
+  }
+
+  function startReveal() {
+    if (revealTimerRef.current) clearInterval(revealTimerRef.current);
+    revealTimerRef.current = setInterval(() => {
+      const p = pendingRef.current;
+      if (!p || p.fullAnswer == null) return;
+      const nextLen = Math.min((p.revealed || '').length + REVEAL_CHARS_PER_TICK, p.fullAnswer.length);
+      const revealed = p.fullAnswer.slice(0, nextLen);
+      if (nextLen >= p.fullAnswer.length) {
+        clearInterval(revealTimerRef.current); revealTimerRef.current = null;
+        updatePending({revealed, phase:'streaming'});
+        finalizeMessage();
+      } else {
+        updatePending({revealed});
+      }
+    }, REVEAL_TICK_MS);
+  }
+
+  function finalizeMessage() {
+    const p = pendingRef.current;
+    if (!p) return;
+    setMessages(m => [...m, {role:'assistant', content: p.fullAnswer, folders: p.folders || []}]);
+    pendingRef.current = null; setPending(null);
+  }
+
+  async function runSend(turns) {
+    setErr('');
+    lastTurnsRef.current = turns;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const start = Date.now();
+    pendingRef.current = {phase:'thinking', revealed:'', fullAnswer:null, folders:[]};
+    setPending(pendingRef.current);
+
+    let answerData = null, fetchErrMsg = null, aborted = false;
     try {
       const res = await fetch(SB_URL + '/functions/v1/ask', {
         method:'POST',
         headers:{'content-type':'application/json','authorization':'Bearer ' + props.session.access_token},
-        body: JSON.stringify({messages: next.slice(-10).map(m => ({role: m.role, content: m.content}))})
+        signal: controller.signal,
+        body: JSON.stringify({messages: turns.slice(-10).map(m => ({role: m.role, content: m.content}))})
       });
-      const out = await res.json();
-      if (out.error) setErr('Error: ' + out.error);
-      else setMessages(m => [...m, {role:'assistant', content: out.answer, folders: out.folders || []}]);
-    } catch (e) { setErr('Error: ' + e); }
-    setBusy(false);
+      answerData = await res.json();
+    } catch (e) {
+      if (e && e.name === 'AbortError') aborted = true; else fetchErrMsg = String(e);
+    }
+
+    // User already stopped generation while the request was in flight.
+    if (!pendingRef.current || pendingRef.current.phase === 'interrupted') return;
+    if (aborted) return; // stop() already moved state to interrupted
+
+    const elapsed = Date.now() - start;
+    const remaining = Math.max(0, MIN_THINK_MS - elapsed);
+    guardTimerRef.current = setTimeout(() => {
+      if (!pendingRef.current || pendingRef.current.phase === 'interrupted') return;
+      if (fetchErrMsg) {
+        setErr('Error: ' + fetchErrMsg);
+        pendingRef.current = null; setPending(null);
+        return;
+      }
+      if (answerData && answerData.error) {
+        setErr('Error: ' + answerData.error);
+        pendingRef.current = null; setPending(null);
+        return;
+      }
+      updatePending({phase:'crossfade', fullAnswer: (answerData && answerData.answer) || '', folders: (answerData && answerData.folders) || []});
+      startReveal();
+      crossfadeTimerRef.current = setTimeout(() => {
+        if (pendingRef.current && pendingRef.current.phase === 'crossfade') updatePending({phase:'streaming'});
+      }, CROSSFADE_MS);
+    }, remaining);
+  }
+
+  async function send() {
+    const content = text.trim();
+    if (!content || generating) return;
+    setText('');
+    // Drop any leftover interrupted bubble from a prior turn before starting a new one.
+    if (pendingRef.current) { pendingRef.current = null; setPending(null); }
+    const next = [...messages, {role:'user', content}];
+    setMessages(next);
+    await runSend(next);
+  }
+
+  function stop() {
+    clearTimers();
+    if (abortRef.current) abortRef.current.abort();
+    if (!pendingRef.current) return;
+    updatePending({phase:'interrupted'});
+  }
+
+  function continueGen() {
+    const p = pendingRef.current;
+    if (!p || p.fullAnswer == null) return;
+    updatePending({phase:'streaming'});
+    startReveal();
+  }
+
+  function regenerate() {
+    clearTimers();
+    pendingRef.current = null; setPending(null);
+    const turns = lastTurnsRef.current || messages;
+    runSend(turns);
   }
 
   function onKey(e) {
@@ -228,12 +397,14 @@ function Chat(props) {
         m.folders && m.folders.length
           ? h('div', {className:'cites'}, 'memory: ' + m.folders.map(f => '[' + f.n + '] ' + f.title).join('  '))
           : null)),
-      busy ? h('div', {className:'typing'}, 'thinking...') : null,
+      pending ? h(PendingBubble, {p: pending, onContinue: continueGen, onRegenerate: regenerate}) : null,
       h('div', {ref:endRef})),
     err ? h('p', {className:'err'}, err) : null,
     h('div', {className:'composer'},
       h('textarea', {placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
-      h('button', {disabled:busy || !text.trim(), onClick:send}, 'Send'))));
+      generating
+        ? h('button', {type:'button', className:'stop-btn', onClick:stop}, 'Stop')
+        : h('button', {disabled:!text.trim(), onClick:send}, 'Send'))));
 }
 
 // ===== Task tray =====
@@ -718,4 +889,3 @@ function App() {
 }
 createRoot(document.getElementById('root')).render(h(App));
 </script></body></html>
-
