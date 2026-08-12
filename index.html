@@ -4,99 +4,157 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Alleah</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#121212">
 <style>
-:root{color-scheme:dark}
+/* ===== Design tokens =====
+   WCAG AA contrast pass: dark theme (default) uses a dark-grey surface
+   (~#121212), never pure black, and muted accent hues instead of the
+   fully-saturated brand green so text-on-accent and accent-as-text both
+   clear 4.5:1 (body) / 3:1 (large text, UI components). A light theme is
+   provided via [data-theme="light"] on <html>, toggled from the header
+   menu and persisted to localStorage. Every color in this file - and
+   every inline color set from JS below - reads one of these variables so
+   the whole app (not just chat) stays in sync. */
+:root{
+  color-scheme:dark;
+  --bg:#121212;
+  --surface:#1c1c1e;
+  --surface-2:#242427;
+  --surface-dark:#121212; /* explicit dark-grey surface token, used for the deepest layer */
+  --border:#3a3a3d;
+  --text-primary:#f2f2f3;
+  --text-secondary:#b7bac0;   /* 4.5:1+ on --bg and --surface */
+  --accent:#3ddb96;           /* headline accent kept vivid enough for large text/icons */
+  --accent-muted-dark:#2f9d6c;/* muted accent for dark-mode fills/borders per proposal */
+  --accent-contrast:#06120c;  /* text placed ON an accent-filled control */
+  --danger:#ff9086;
+  --danger-contrast:#2b0705;
+  --warning:#e7b567;
+  --info:#7db8ff;
+  --purple:#dd9dff;
+  --neutral:#9498a1;          /* replaces the old #5c636e, which failed 4.5:1 */
+  --focus-ring:#7db8ff;
+}
+html[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f6f6f7;
+  --surface:#ffffff;
+  --surface-2:#edeef0;
+  --surface-dark:#121212;
+  --border:#d6d8db;
+  --text-primary:#17181a;
+  --text-secondary:#53565c;
+  --accent:#0e7a4a;          /* darkened vs. dark-theme accent so text/button use both clear 4.5:1 on light surfaces */
+  --accent-muted-dark:#0e7a4a;
+  --accent-contrast:#ffffff;
+  --danger:#b3261e;
+  --danger-contrast:#ffffff;
+  --warning:#8a5a00;
+  --info:#0b5fb8;
+  --purple:#7c3aad;
+  --neutral:#5b5e65;
+  --focus-ring:#0b5fb8;
+}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;background:#0f1115;color:#e6e6e6;font:16px/1.5 -apple-system,system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text-primary);font:16px/1.5 -apple-system,system-ui,sans-serif}
 #root{height:100%;max-width:680px;margin:0 auto;display:flex;flex-direction:column}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
 header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px 4px}
 h1{font-size:18px;margin:0}
 #thread{flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:10px}
 .msg{max-width:85%;padding:10px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word}
-.msg.user{align-self:flex-end;background:#3ecf8e;color:#08130d;border-bottom-right-radius:4px}
-.msg.assistant{align-self:flex-start;background:#1a1d23;border:1px solid #2c313a;border-bottom-left-radius:4px}
-.cites{align-self:flex-start;font-size:12px;color:#9aa3ad;margin-top:-4px;padding:0 6px}
+.msg.user{align-self:flex-end;background:var(--accent);color:var(--accent-contrast);border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-bottom-left-radius:4px}
+.cites{align-self:flex-start;font-size:12px;color:var(--text-secondary);margin-top:-4px;padding:0 6px}
 .composer{display:flex;gap:8px;padding:10px 14px calc(14px + env(safe-area-inset-bottom))}
-textarea{flex:1;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:120px}
-button{background:#3ecf8e;color:#08130d;border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
-button.secondary{background:#2c313a;color:#e6e6e6;font-size:13px;padding:6px 12px;border-radius:8px}
-button.stop-btn{background:#ff7b72;color:#2b0d0b}
+textarea{flex:1;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:120px}
+button{background:var(--accent);color:var(--accent-contrast);border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
+button.secondary{background:var(--surface-2);color:var(--text-primary);font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--border)}
+button.stop-btn{background:var(--danger);color:var(--danger-contrast)}
+button.reject-btn{background:var(--danger);color:var(--danger-contrast)}
 button:disabled{opacity:.5}
-input,select{width:100%;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:10px;padding:12px;font:inherit}
+input,select{width:100%;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:10px;padding:12px;font:inherit}
 .auth{padding:16px 14px}
 .auth button{padding:12px 18px;margin-top:10px}
 .row{display:flex;gap:8px}.row>*{flex:1}
-.muted{color:#9aa3ad;font-size:14px}
-.err{color:#ff7b72;font-size:14px;padding:0 14px}
-.typing{align-self:flex-start;color:#9aa3ad;font-size:14px;padding:0 6px}
-#tasks,#goals{flex:1;overflow-y:auto;padding:8px 14px}
-.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid #2c313a}
-.dot{width:8px;height:8px;border-radius:50%}
+.muted{color:var(--text-secondary);font-size:14px}
+.err{color:var(--danger);font-size:14px;padding:0 14px}
+.typing{align-self:flex-start;color:var(--text-secondary);font-size:14px;padding:0 6px}
+#tasks,#goals,#upgrades{flex:1;overflow-y:auto;padding:8px 14px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid var(--border)}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.status-icon{font-size:11px;line-height:1}
 .pulse{animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .segbar{display:flex;gap:2px;margin:4px 0}
-.seg{flex:1;height:8px;border-radius:2px;background:#2c313a}
-.seg.on{background:#3ecf8e}
-.meter{height:8px;border-radius:4px;background:#2c313a;overflow:hidden;margin:4px 0}
-.card{background:#12151a;border:1px solid #2c313a;border-radius:12px;padding:12px 14px;margin:10px 0}
+.seg{flex:1;height:8px;border-radius:2px;background:var(--surface-2)}
+.seg.on{background:var(--accent-muted-dark)}
+.meter{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;margin:4px 0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin:10px 0}
 .meter>div{height:100%;border-radius:4px}
-.small{font-size:12px;color:#9aa3ad;margin:2px 0}
-.task-full{white-space:pre-wrap;background:#12151a;border:1px solid #2c313a;border-radius:8px;padding:10px;margin-top:8px;max-height:320px;overflow-y:auto;font-size:14px}
-.pill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+.small{font-size:12px;color:var(--text-secondary);margin:2px 0}
+.task-full{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;max-height:320px;overflow-y:auto;font-size:14px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid transparent}
 .filterbar{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px}
-.filterbtn{flex:none;background:#1a1d23;color:#9aa3ad;border:1px solid #2c313a;border-radius:999px;padding:6px 13px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
-.filterbtn.active{background:#e6e6e6;color:#0f1115;border-color:#e6e6e6}
-.summary{display:flex;gap:14px;flex-wrap:wrap;padding:2px 2px 10px;color:#9aa3ad;font-size:12px}
-.summary b{color:#e6e6e6}
-.goal-desc{white-space:pre-wrap;background:#0f1115;border:1px solid #2c313a;border-radius:8px;padding:10px;margin-top:8px;font-size:13.5px;color:#c7ccd3}
+.filterbtn{flex:none;background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);border-radius:999px;padding:6px 13px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.filterbtn.active{background:var(--text-primary);color:var(--bg);border-color:var(--text-primary)}
+.summary{display:flex;gap:14px;flex-wrap:wrap;padding:2px 2px 10px;color:var(--text-secondary);font-size:12px}
+.summary b{color:var(--text-primary)}
+.goal-desc{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:13.5px;color:var(--text-secondary)}
 .addform{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .addform .row2{display:flex;gap:8px}
 .addform .row2>*{flex:1}
-.newgoalbtn{width:100%;text-align:left;background:#1a1d23;color:#9aa3ad;border:1px dashed #2c313a}
+.newgoalbtn{width:100%;text-align:left;background:var(--surface);color:var(--text-secondary);border:1px dashed var(--border)}
 .goal-path{display:flex;flex-direction:column}
 .goal-row{display:flex;gap:10px}
 .goal-connector{display:flex;flex-direction:column;align-items:center;width:18px;flex:none}
-.goal-node-dot{width:14px;height:14px;border-radius:50%;flex:none;margin-top:14px;box-shadow:0 0 0 3px #0f1115,0 0 0 4.5px currentColor}
-.goal-node-line{width:2px;flex:1;min-height:22px;background:#2c313a;margin:4px 0}
-.goal-box{flex:1;min-width:0;background:#12151a;border:1px solid #2c313a;border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer}
+.goal-node-dot{width:14px;height:14px;border-radius:50%;flex:none;margin-top:14px;box-shadow:0 0 0 3px var(--bg),0 0 0 4.5px currentColor}
+.goal-node-line{width:2px;flex:1;min-height:22px;background:var(--border);margin:4px 0}
+.goal-box{flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer}
 .goal-box-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-.goal-obj-count{font-size:12px;color:#9aa3ad}
-.goal-checklist{margin-top:10px;padding-top:10px;border-top:1px solid #2c313a;display:flex;flex-direction:column;gap:2px}
+.goal-obj-count{font-size:12px;color:var(--text-secondary)}
+.goal-checklist{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
 .goal-obj{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
-.goal-obj input[type=checkbox]{width:22px;height:22px;flex:none;accent-color:#3ecf8e;cursor:pointer}
+.goal-obj input[type=checkbox]{width:22px;height:22px;flex:none;accent-color:var(--accent);cursor:pointer}
 .goal-obj span{font-size:14px}
-.goal-obj.done span{text-decoration:line-through;color:#9aa3ad}
+.goal-obj.done span{text-decoration:line-through;color:var(--text-secondary)}
 .menu-wrap{position:relative}
-.menu-btn{width:46px;height:46px;background:#1a1d23;color:#e6e6e6;border:1px solid #2c313a;border-radius:12px;padding:0;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.menu-btn:active{background:#2c313a}
-.menu-btn[aria-expanded="true"]{background:#2c313a;border-color:#3ecf8e}
-.menu-dropdown{position:absolute;top:calc(100% + 8px);right:0;min-width:208px;background:#1a1d23;border:1px solid #2c313a;border-radius:16px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.45);z-index:30}
-.menu-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9aa3ad;padding:10px 12px 6px}
-.menu-item{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;background:transparent;color:#e6e6e6;border:0;border-radius:10px;padding:12px 12px;font:inherit;font-size:15px;text-align:left;cursor:pointer}
-.menu-item:active{background:#2c313a}
-.menu-item.active{background:#3ecf8e;color:#08130d;font-weight:700}
-.menu-item.danger{color:#ff7b72}
-.menu-sep{height:1px;background:#2c313a;margin:6px 6px}
+.menu-btn{width:46px;height:46px;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:12px;padding:0;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.menu-btn:active{background:var(--surface-2)}
+.menu-btn[aria-expanded="true"]{background:var(--surface-2);border-color:var(--accent)}
+.menu-dropdown{position:absolute;top:calc(100% + 8px);right:0;min-width:208px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.45);z-index:30}
+.menu-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:10px 12px 6px}
+.menu-item{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;background:transparent;color:var(--text-primary);border:0;border-radius:10px;padding:12px 12px;font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.menu-item:active{background:var(--surface-2)}
+.menu-item.active{background:var(--accent);color:var(--accent-contrast);font-weight:700}
+.menu-item.danger{color:var(--danger)}
+.menu-sep{height:1px;background:var(--border);margin:6px 6px}
 .upgrade-actions{display:flex;gap:8px;margin-top:10px}
 .upgrade-actions button{flex:1;padding:8px 0}
 .directive-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-.directive-item{background:#12151a;border:1px solid #2c313a;border-radius:10px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.directive-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.score-row{display:flex;gap:14px;margin-top:10px}
+.score-col{flex:1;min-width:0}
+.score-label{display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:2px}
+.priority-num{font-size:12px;color:var(--text-secondary);margin-top:8px}
+.priority-num b{color:var(--text-primary)}
 .msg.pending{display:flex;flex-direction:column;gap:4px}
 .stream-wrap{display:grid}
 .stream-wrap>*{grid-area:1/1}
 .think-row{display:inline-flex;align-items:center;gap:8px;transition:opacity .25s ease}
 .think-row.fade-out{opacity:0}
-.think-label{font-size:13px;color:#9aa3ad}
+.think-label{font-size:13px;color:var(--text-secondary)}
 .think-dots{display:inline-flex;gap:5px;padding:4px 2px;align-items:center}
-.think-dot{font-size:16px;line-height:1;color:#9aa3ad;animation:think-bounce 1.1s infinite ease-in-out}
+.think-dot{font-size:16px;line-height:1;color:var(--text-secondary);animation:think-bounce 1.1s infinite ease-in-out}
 @keyframes think-bounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
 .stream-text{opacity:0;transition:opacity .25s ease;white-space:pre-wrap;word-wrap:break-word}
 .stream-text.show{opacity:1}
-.stream-cursor{display:inline-block;width:2px;height:1em;background:#9aa3ad;vertical-align:text-bottom;margin-left:1px;animation:cursor-blink 1s step-start infinite}
+.stream-cursor{display:inline-block;width:2px;height:1em;background:var(--text-secondary);vertical-align:text-bottom;margin-left:1px;animation:cursor-blink 1s step-start infinite}
 @keyframes cursor-blink{50%{opacity:0}}
-.interrupted-note{font-size:12px;color:#e0a458;font-style:italic;margin-top:2px}
+.interrupted-note{font-size:12px;color:var(--warning);font-style:italic;margin-top:2px}
 .pending-stop{align-self:flex-start;margin-top:2px}
 </style></head><body>
 <div id="root"></div>
@@ -109,6 +167,29 @@ const SB_URL = "https://sphnmcjlxxzgovisgepo.supabase.co";
 const supabase = createClient(SB_URL, "sb_publishable_vVfIttSbf_XLWKl2xahBWA_-sXU34L0");
 const HISTORY_KEY = "alleah_chat_v1";
 const GOALS_KEY = "alleah_goals_v1";
+const THEME_KEY = "alleah_theme_v1";
+
+// ===== Theme (light / dark, WCAG AA token pass) =====
+// Tokens live in CSS (:root and [data-theme="light"]); this just flips the
+// attribute and persists the choice. Defaults to the user's OS preference,
+// falling back to dark (the app's original look) if that can't be read.
+function getInitialTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {}
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+  } catch {}
+  return 'dark';
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? '#f6f6f7' : '#121212');
+  try { localStorage.setItem(THEME_KEY, theme); } catch {}
+}
+applyTheme(getInitialTheme());
 
 // ===== Header menu =====
 // Single source of truth for the view links shown in the header menu.
@@ -123,6 +204,7 @@ const VIEWS = [
 
 function HeaderMenu(props) {
   const [open, setOpen] = React.useState(false);
+  const [theme, setTheme] = React.useState(() => document.documentElement.getAttribute('data-theme') || 'dark');
   const wrapRef = React.useRef(null);
   React.useEffect(() => {
     if (!open) return;
@@ -135,6 +217,11 @@ function HeaderMenu(props) {
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+  function toggleTheme() {
+    const next = theme === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    setTheme(next);
+  }
   return h('div', {className:'menu-wrap', ref:wrapRef},
     h('button', {
       type:'button', className:'menu-btn', 'aria-haspopup':'menu', 'aria-expanded':open,
@@ -150,6 +237,10 @@ function HeaderMenu(props) {
         onClick:() => { props.setView(v.key); setOpen(false); },
       }, v.label)),
       h('div', {className:'menu-sep'}),
+      h('button', {
+        type:'button', role:'menuitem', className:'menu-item',
+        onClick:toggleTheme,
+      }, (theme === 'light' ? '🌙 ' : '☀️ ') + (theme === 'light' ? 'Dark theme' : 'Light theme')),
       h('button', {
         type:'button', role:'menuitem', className:'menu-item',
         onClick:() => { setOpen(false); props.onNewChat(); },
@@ -217,7 +308,7 @@ function PendingBubble(props) {
     const hasPartial = !!(p.revealed && p.revealed.length);
     return h('div', {className:'msg assistant pending', 'data-phase':p.phase},
       hasPartial ? h('span', null, p.revealed) : null,
-      h('div', {className:'interrupted-note'}, hasPartial ? 'Generation stopped.' : 'Stopped before generating a response.'),
+      h('div', {className:'interrupted-note'}, (hasPartial ? '⏸ ' : '⏹ ') + (hasPartial ? 'Generation stopped.' : 'Stopped before generating a response.')),
       h('div', {className:'upgrade-actions'},
         hasPartial ? h('button', {type:'button', className:'secondary', onClick:props.onContinue}, 'Continue') : null,
         h('button', {type:'button', className:'secondary', onClick:props.onRegenerate}, 'Regenerate')));
@@ -399,7 +490,7 @@ function Chat(props) {
           : null)),
       pending ? h(PendingBubble, {p: pending, onContinue: continueGen, onRegenerate: regenerate}) : null,
       h('div', {ref:endRef})),
-    err ? h('p', {className:'err'}, err) : null,
+    err ? h('p', {className:'err'}, '⚠ ' + err) : null,
     h('div', {className:'composer'},
       h('textarea', {placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
       generating
@@ -410,7 +501,18 @@ function Chat(props) {
 // ===== Task tray =====
 // Three meters visualize BUDGET CONSUMED (steps / spend / time) - deliberately no
 // percent-complete bar anywhere: completion isn't knowable.
-const STATUS_COLOR = {queued:'#9aa3ad', running:'#3ecf8e', done:'#3ecf8e', capped:'#e0a458', failed:'#ff7b72', cancelled:'#5c636e'};
+// Status is never color-only: each entry pairs a token color with a distinct
+// glyph AND the status word itself, so it still reads correctly for color-blind
+// users, in grayscale printouts, and to screen readers (the glyph is decorative
+// via aria-hidden, the text label carries the accessible name).
+const STATUS_META = {
+  queued:    {color:'var(--text-secondary)', icon:'🕓'},
+  running:   {color:'var(--accent)',         icon:'▶'},
+  done:      {color:'var(--accent)',         icon:'✓'},
+  capped:    {color:'var(--warning)',        icon:'▲'},
+  failed:    {color:'var(--danger)',         icon:'✕'},
+  cancelled: {color:'var(--neutral)',        icon:'⦸'},
+};
 
 function fmtAge(iso) {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -418,6 +520,14 @@ function fmtAge(iso) {
   if (m < 60) return m + 'm ago';
   if (m < 1440) return Math.floor(m/60) + 'h ago';
   return Math.floor(m/1440) + 'd ago';
+}
+
+function StatusBadge(props) {
+  const meta = STATUS_META[props.status] || {color:'var(--text-secondary)', icon:'•'};
+  return h('span', {className:'badge'},
+    h('span', {className:'dot' + (props.pulse ? ' pulse' : ''), style:{background:meta.color}}),
+    h('span', {className:'status-icon', 'aria-hidden':'true', style:{color:meta.color}}, meta.icon),
+    h('span', {style:{color:meta.color}}, props.label));
 }
 
 function TaskCard(props) {
@@ -434,8 +544,8 @@ function TaskCard(props) {
   const endMs = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
   const elapsedMs = Math.max(0, Math.min(endMs - new Date(t.created_at).getTime(), CAP.min*60000));
   const elapsed = Math.floor(elapsedMs/60000) + 'm ' + Math.floor((elapsedMs%60000)/1000) + 's';
-  const spendColor = spendRatio < 0.5 ? '#3ecf8e' : spendRatio < 0.8 ? '#e0a458' : '#ff7b72';
-  const color = STATUS_COLOR[t.status] || '#9aa3ad';
+  const spendColor = spendRatio < 0.5 ? 'var(--accent)' : spendRatio < 0.8 ? 'var(--warning)' : 'var(--danger)';
+  const meta = STATUS_META[t.status] || {color:'var(--text-secondary)', icon:'•'};
   const pv = props.preview;
   const rvw = props.review;
   const sha = rvw ? (/audited staged commit: ([0-9a-f]{7,40})/i.exec(rvw) || [])[1] : null;
@@ -449,23 +559,21 @@ function TaskCard(props) {
   const safeUrl = pv && typeof pv.preview_url === 'string' && /^https:\/\//.test(pv.preview_url);
   return h('div', {className:'card'},
     h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}},
-      h('span', {className:'badge'},
-        h('span', {className:'dot' + (t.status==='running'?' pulse':''), style:{background:color}}),
-        h('span', {style:{color:color}}, (t.kind && t.kind !== 'research' ? t.kind + ' · ' : '') + t.status)),
+      h(StatusBadge, {status:t.status, pulse:t.status==='running', label:(t.kind && t.kind !== 'research' ? t.kind + ' · ' : '') + t.status}),
       h('span', {className:'small'}, fmtAge(t.created_at)),
       active ? h('button', {className:'secondary', style:{marginTop:0,padding:'4px 10px',fontSize:'12px'},
         onClick:function(){ if(confirm('Cancel this task?')) props.onCancel(t.id); }}, 'Cancel') : null),
     pv && !(pv.status === 'expired' && !safeUrl) ? h('p', {className:'small', style:{margin:'6px 0 0'}},
-      safeUrl ? h('a', {href: pv.preview_url, target:'_blank', rel:'noopener', style:{color:'#3ecf8e'}}, 'Preview ↗')
-              : h('span', {style:{color:'#9aa3ad'}}, pv.status === 'building' ? 'preview building…' : 'preview url missing'),
+      safeUrl ? h('a', {href: pv.preview_url, target:'_blank', rel:'noopener'}, 'Preview ↗')
+              : h('span', {style:{color:'var(--text-secondary)'}}, pv.status === 'building' ? 'preview building…' : 'preview url missing'),
       '  rev ' + pv.revision + ' · ' + pv.status,
       rvw ? (clean
         ? h('span', null, '  ·  review: clean ✓  ',
-            h('a', {href:'https://github.com/maxrym-svg/alleah/actions/workflows/promote-preview.yml', target:'_blank', rel:'noopener', style:{color:'#3ecf8e'}}, 'Promote ↗'),
+            h('a', {href:'https://github.com/maxrym-svg/alleah/actions/workflows/promote-preview.yml', target:'_blank', rel:'noopener'}, 'Promote ↗'),
             '  sha ' + sha.slice(0,12) + '…')
         : hasFindings
-          ? h('span', {style:{color:'#e0a458'}}, '  ·  review: findings - ask Alleah')
-          : h('span', {style:{color:'#9aa3ad'}}, '  ·  review done - ask Alleah for the verdict')) : null) : null,
+          ? h('span', {style:{color:'var(--warning)'}}, '  ·  ▲ review: findings - ask Alleah')
+          : h('span', {style:{color:'var(--text-secondary)'}}, '  ·  review done - ask Alleah for the verdict')) : null) : null,
     h('p', {style:{margin:'8px 0 4px',cursor:'pointer'}, onClick:function(){setOpen(!open)}},
       (function(){
         const label = t.kind === 'review'
@@ -473,7 +581,7 @@ function TaskCard(props) {
           : (t.instruction || '');
         return open ? label : (label.length > 110 ? label.slice(0,110) + '...' : label);
       })()),
-    t.status === 'running' && t.progress ? h('p', {className:'small', style:{color:'#e6e6e6'}}, '▸ ' + t.progress) : null,
+    t.status === 'running' && t.progress ? h('p', {className:'small', style:{color:'var(--text-primary)'}}, '▸ ' + t.progress) : null,
     active ? h('div', null,
       h('div', {className:'small'}, 'steps used: ' + steps + ' / ' + CAP.steps),
       h('div', {className:'segbar'}, Array.from({length: CAP.steps}, function(_, i){
@@ -481,10 +589,10 @@ function TaskCard(props) {
       h('div', {className:'small'}, 'spend: $' + spend.toFixed(2) + ' / $' + CAP.spend.toFixed(2) + ' cap'),
       h('div', {className:'meter'}, h('div', {style:{width:(spendRatio*100)+'%',background:spendColor}})),
       h('div', {className:'small'}, 'time since queued: ' + elapsed + ' / ' + CAP.min + 'm limit (worker may start up to 1m after queuing)'),
-      h('div', {className:'meter'}, h('div', {style:{width:(elapsedMs/(CAP.min*60000)*100)+'%',background:'#3ecf8e'}}))) : null,
+      h('div', {className:'meter'}, h('div', {style:{width:(elapsedMs/(CAP.min*60000)*100)+'%',background:'var(--accent-muted-dark)'}}))) : null,
     open ? h('div', null,
       t.result ? h('div', {className:'task-full'}, t.result) : null,
-      t.error ? h('p', {className:'err', style:{padding:0}}, t.error) : null,
+      t.error ? h('p', {className:'err', style:{padding:0}}, '⚠ ' + t.error) : null,
       h('p', {className:'small'}, 'steps ' + (t.steps_used ?? 0) + ' · $' + (Number(t.spend_usd)||0).toFixed(2) +
         ' · queued ' + new Date(t.created_at).toLocaleString() +
         (t.completed_at ? ' · finished ' + new Date(t.completed_at).toLocaleString() : ''))) : null);
@@ -539,12 +647,17 @@ function Tasks(props) {
 // swap the localStorage load/save below for supabase.from('goals') calls following
 // the same RLS-policy pattern as folders/queries/worker_tasks.
 const DIFFICULTY = {
-  easy:   {label: 'Easy',   color: '#3ecf8e'},
-  medium: {label: 'Medium', color: '#58a6ff'},
-  hard:   {label: 'Hard',   color: '#e0a458'},
-  epic:   {label: 'Epic',   color: '#d68fff'},
+  easy:   {label: 'Easy',   color: 'var(--accent)'},
+  medium: {label: 'Medium', color: 'var(--info)'},
+  hard:   {label: 'Hard',   color: 'var(--warning)'},
+  epic:   {label: 'Epic',   color: 'var(--purple)'},
 };
-const GOAL_STATUS_COLOR = {active:'#3ecf8e', completed:'#3ecf8e', paused:'#e0a458', abandoned:'#5c636e'};
+const GOAL_STATUS_META = {
+  active:    {color:'var(--accent)',  icon:'▶'},
+  completed: {color:'var(--accent)',  icon:'✓'},
+  paused:    {color:'var(--warning)', icon:'⏸'},
+  abandoned: {color:'var(--neutral)', icon:'⦸'},
+};
 const GOALS_DAY = 86400000;
 
 function loadGoals() {
@@ -614,12 +727,12 @@ function GoalBox(props) {
   const g = props.g;
   const [open, setOpen] = React.useState(false);
   const diff = DIFFICULTY[g.difficulty];
-  const color = GOAL_STATUS_COLOR[g.status];
+  const meta = GOAL_STATUS_META[g.status] || {color:'var(--text-secondary)', icon:'•'};
   const overdue = g.status === 'active' && g.target_date != null && g.target_date < Date.now();
   const total = g.objectives.length;
   const done = g.objectives.filter(o => o.done).length;
   const ratio = total ? done / total : 0;
-  const meterColor = overdue ? '#ff7b72' : color;
+  const meterColor = overdue ? 'var(--danger)' : meta.color;
   let dateLine;
   if (g.status === 'completed') dateLine = 'completed ' + fmtAgeShort(g.completed_at);
   else if (g.status === 'active') dateLine = (overdue ? 'was due ' : 'due ') + fmtRelDay(g.target_date);
@@ -627,14 +740,12 @@ function GoalBox(props) {
   return h('div', {className:'goal-box', onClick:()=>setOpen(!open)},
     h('div', {className:'goal-box-head'},
       h('p', {style:{fontSize:'15px',fontWeight:700,margin:'0 0 2px'}}, g.title),
-      h('span', {className:'pill', style:{background:diff.color+'22', color:diff.color, border:'1px solid '+diff.color+'55'}}, diff.label)),
+      h('span', {className:'pill', style:{background:'color-mix(in srgb, '+diff.color+' 16%, transparent)', color:diff.color, border:'1px solid color-mix(in srgb, '+diff.color+' 45%, transparent)'}}, diff.label)),
     h('div', {style:{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}},
-      h('span', {className:'badge'},
-        h('span', {className:'dot' + (g.status==='active'?' pulse':''), style:{background:color}}),
-        h('span', {style:{color:color}}, g.status)),
+      h(StatusBadge, {status:g.status, pulse:g.status==='active', label:g.status}),
       h('span', {className:'small'}, g.category),
       g.target_date != null ? h('span', {className:'small'}, '·') : null,
-      g.target_date != null ? h('span', {className:'small', style:{color: overdue ? '#ff7b72' : '#9aa3ad'}}, dateLine) : null),
+      g.target_date != null ? h('span', {className:'small', style:{color: overdue ? 'var(--danger)' : 'var(--text-secondary)'}}, (overdue ? '⚠ ' : '') + dateLine) : null),
     h('div', {className:'meter'}, h('div', {style:{width:(ratio*100)+'%', background:meterColor}})),
     h('div', {className:'goal-obj-count'}, done + ' / ' + total + ' mini-objectives'),
     open ? h('div', null,
@@ -646,7 +757,7 @@ function GoalBox(props) {
           onClick:(e)=>{ e.stopPropagation(); props.onGenerate(g); },
         }, props.generating ? 'Generating steps...'
            : (g.objectives.length ? 'Regenerate steps' : 'Generate steps'))),
-      props.genErr ? h('p', {className:'small', style:{color:'#ff7b72'}}, props.genErr) : null,
+      props.genErr ? h('p', {className:'small', style:{color:'var(--danger)'}}, '⚠ ' + props.genErr) : null,
       h('div', {className:'goal-checklist'},
         g.objectives.map(o => h('label', {
             key:o.id, className:'goal-obj' + (o.done ? ' done' : ''),
@@ -681,7 +792,8 @@ function NewGoalForm(props) {
   }
 
   return h('form', {className:'card addform', onSubmit:submit},
-    h('input', {placeholder:'Goal title', value:title, autoFocus:true, onChange:e=>setTitle(e.target.value)}),
+    h('input', {placeholder:'Goal title', value:title,
+      autoFocus:true, onChange:e=>setTitle(e.target.value)}),
     h('div', {className:'row2'},
       h('input', {placeholder:'Category (optional)', value:category, onChange:e=>setCategory(e.target.value)}),
       h('select', {value:difficulty, onChange:e=>setDifficulty(e.target.value)},
@@ -743,30 +855,28 @@ function Goals(props) {
     goals.length ? h('div', {className:'goal-path', style:{marginTop:'10px'}},
       goals.map((g, i) => h('div', {className:'goal-row', key:g.id},
         h('div', {className:'goal-connector'},
-          h('span', {className:'goal-node-dot', style:{color: GOAL_STATUS_COLOR[g.status]}}),
+          h('span', {className:'goal-node-dot', style:{color: (GOAL_STATUS_META[g.status]||{}).color}}),
           i < goals.length - 1 ? h('span', {className:'goal-node-line'}) : null),
         h(GoalBox, {g, onToggle: toggleObjective, onGenerate: generateFor, generating: !!generating[g.id], genErr: genErr[g.id] || ''})))) : null);
 }
 
 function UpgradeCard(props) {
   const p = props.p;
-  const benefit = BENEFIT_TYPES[p.benefit_type] || {label: p.benefit_type, color: '#9aa3ad'};
-  const status = PROPOSAL_STATUS[p.status] || {label: p.status, color: '#9aa3ad'};
+  const benefit = BENEFIT_TYPES[p.benefit_type] || {label: p.benefit_type, color: 'var(--text-secondary)'};
+  const status = PROPOSAL_STATUS[p.status] || {label: p.status, color: 'var(--text-secondary)', icon:'•'};
   return h('div', {className:'card'},
     h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}},
-      h('span', {className:'chip', style:{background:benefit.color+'22', color:benefit.color, borderColor:benefit.color+'55'}}, benefit.label),
-      h('span', {className:'badge'},
-        h('span', {className:'dot', style:{background:status.color}}),
-        h('span', {style:{color:status.color}}, status.label))),
+      h('span', {className:'chip', style:{background:'color-mix(in srgb, '+benefit.color+' 16%, transparent)', color:benefit.color, borderColor:'color-mix(in srgb, '+benefit.color+' 45%, transparent)'}}, benefit.label),
+      h(StatusBadge, {status:p.status, label:status.label})),
     h('p', {style:{fontSize:'15px',fontWeight:700,margin:'10px 0 2px'}}, p.title),
-    h('p', {className:'small', style:{fontSize:'13.5px',color:'#c7ccd3',margin:'2px 0 0'}}, p.summary),
+    h('p', {className:'small', style:{fontSize:'13.5px',color:'var(--text-secondary)',margin:'2px 0 0'}}, p.summary),
     h('div', {className:'score-row'},
       h('div', {className:'score-col'},
         h('div', {className:'score-label'}, h('span', null, 'Functionality'), h('span', null, p.functionality_score + '/10')),
-        h('div', {className:'meter'}, h('div', {style:{width:(p.functionality_score*10)+'%', background:'#3ecf8e'}}))),
+        h('div', {className:'meter'}, h('div', {style:{width:(p.functionality_score*10)+'%', background:'var(--accent)'}}))),
       h('div', {className:'score-col'},
         h('div', {className:'score-label'}, h('span', null, 'Cost'), h('span', null, p.cost_score + '/10')),
-        h('div', {className:'meter'}, h('div', {style:{width:(p.cost_score*10)+'%', background:'#e0a458'}})))),
+        h('div', {className:'meter'}, h('div', {style:{width:(p.cost_score*10)+'%', background:'var(--warning)'}})))),
     h('div', {className:'priority-num'}, 'Priority score: ', h('b', null, (p.functionality_score - p.cost_score))),
     p.status === 'proposed' ? h('div', {className:'upgrade-actions'},
       h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'approved')}, 'Approve'),
@@ -777,23 +887,25 @@ function UpgradeCard(props) {
 }
 
 const PROPOSAL_STATUS = {
-  proposed: {label: 'Proposed', color: '#9aa3ad'},
-  approved: {label: 'Approved', color: '#58a6ff'},
-  building: {label: 'Building', color: '#e0a458'},
-  done:     {label: 'Done',     color: '#3ecf8e'},
-  rejected: {label: 'Rejected', color: '#ff7b72'},
+  proposed: {label: 'Proposed', color: 'var(--text-secondary)', icon:'◌'},
+  approved: {label: 'Approved', color: 'var(--info)',            icon:'➜'},
+  building: {label: 'Building', color: 'var(--warning)',         icon:'⚙'},
+  done:     {label: 'Done',     color: 'var(--accent)',          icon:'✓'},
+  rejected: {label: 'Rejected', color: 'var(--danger)',          icon:'✕'},
 };
+Object.keys(PROPOSAL_STATUS).forEach(k => { STATUS_META[k] = {color: PROPOSAL_STATUS[k].color, icon: PROPOSAL_STATUS[k].icon}; });
+Object.keys(GOAL_STATUS_META).forEach(k => { STATUS_META[k] = STATUS_META[k] || GOAL_STATUS_META[k]; });
 
 const OPEN_STATUSES = ['proposed', 'approved', 'building'];
 const STATUS_FILTERS = ['open', 'done', 'rejected', 'all'];
 const FILTER_LABELS = {open: 'Open', done: 'Completed', rejected: 'Rejected', all: 'All'};
 
 const BENEFIT_TYPES = {
-  ui_improvement:    {label: 'UI improvement',    color: '#58a6ff'},
-  efficiency_upgrade:{label: 'Efficiency upgrade',color: '#3ecf8e'},
-  feature_update:    {label: 'Feature update',    color: '#d68fff'},
-  new_feature:       {label: 'New feature',       color: '#ffd166'},
-  bug_fix:           {label: 'Bug fix',           color: '#ff7b72'},
+  ui_improvement:    {label: 'UI improvement',    color: 'var(--info)'},
+  efficiency_upgrade:{label: 'Efficiency upgrade',color: 'var(--accent)'},
+  feature_update:    {label: 'Feature update',    color: 'var(--purple)'},
+  new_feature:       {label: 'New feature',       color: 'var(--warning)'},
+  bug_fix:           {label: 'Bug fix',           color: 'var(--danger)'},
 };
 
 function ResearchDirectiveForm(props) {
@@ -874,7 +986,7 @@ function Upgrades(props) {
     visible.map(p => h(UpgradeCard, {key:p.id, p, onDecide:decide})),
     visible.length === 0 && proposals.length > 0 ? h('p', {className:'muted', style:{padding:'8px 2px'}}, 'No proposals match this filter.') : null,
     h(ResearchDirectiveForm, {onSubmit:queueDirective}),
-    directiveMsg ? h('p', {className:'small', style:{color:'#3ecf8e'}}, directiveMsg) : null);
+    directiveMsg ? h('p', {className:'small', style:{color:'var(--accent)'}}, '✓ ' + directiveMsg) : null);
 }
 
 function App() {
