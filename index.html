@@ -68,6 +68,18 @@ h1{font-size:18px;margin:0}
 .msg.user{align-self:flex-end;background:var(--accent);color:var(--accent-contrast);border-bottom-right-radius:4px}
 .msg.assistant{align-self:flex-start;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-bottom-left-radius:4px}
 .cites{align-self:flex-start;font-size:12px;color:var(--text-secondary);margin-top:-4px;padding:0 6px}
+/* ===== Message rows (sender + timestamp header above each bubble) =====
+   .msg-row wraps a single turn (meta line + bubble). Spec calls for
+   consistent 16px padding on ALL sides of the row container; a prior
+   audit flagged the first pass as inconsistent per-side, so this uses a
+   single shorthand `padding:16px` (not per-side longhand) to keep all
+   four sides locked together going forward. */
+.msg-row{display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:14px}
+.msg-row.user{align-self:flex-end;align-items:flex-end}
+.msg-row.assistant{align-self:flex-start;align-items:flex-start}
+.msg-row-meta{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--text-secondary);padding:0 2px}
+.msg-row-name{font-weight:700;color:var(--text-primary)}
+.msg-row-time{color:var(--text-secondary)}
 .composer{display:flex;gap:8px;padding:10px 14px calc(14px + env(safe-area-inset-bottom))}
 textarea{flex:1;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:120px}
 button{background:var(--accent);color:var(--accent-contrast);border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
@@ -287,6 +299,20 @@ const CROSSFADE_MS = 250; // dots-to-text cross-fade duration, mirrors the CSS t
 const REVEAL_CHARS_PER_TICK = 3;
 const REVEAL_TICK_MS = 16; // ~60fps token-by-token reveal
 
+// Renders a message's sender + timestamp line above its bubble. Timestamps
+// are optional (older history saved before this feature won't have `ts`),
+// in which case just the sender name shows.
+function formatMsgTime(ts) {
+  try {
+    return new Date(ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  } catch { return ''; }
+}
+function MsgRowMeta(props) {
+  return h('div', {className:'msg-row-meta'},
+    h('span', {className:'msg-row-name'}, props.role === 'user' ? 'You' : 'Alleah'),
+    props.ts ? h('span', {className:'msg-row-time'}, formatMsgTime(props.ts)) : null);
+}
+
 // Text ("Thinking" + literal dot characters), not just a CSS animation on empty
 // nodes - so the indicator is detectable by reading rendered text/accessible
 // name, not only by pixel inspection. role=status announces the state change.
@@ -302,24 +328,30 @@ function ThinkingDots(props) {
 // Renders the single in-flight assistant turn through every phase:
 // thinking (dots) -> crossfade (dots fading out over incoming text) ->
 // streaming (token-by-token text) -> interrupted (Stop was clicked).
+// Wrapped in the same .msg-row container as finalized turns so padding
+// and sender/meta placement stay consistent while a reply is still in flight.
 function PendingBubble(props) {
   const p = props.p;
   if (p.phase === 'interrupted') {
     const hasPartial = !!(p.revealed && p.revealed.length);
-    return h('div', {className:'msg assistant pending', 'data-phase':p.phase},
-      hasPartial ? h('span', null, p.revealed) : null,
-      h('div', {className:'interrupted-note'}, (hasPartial ? '⏸ ' : '⏹ ') + (hasPartial ? 'Generation stopped.' : 'Stopped before generating a response.')),
-      h('div', {className:'upgrade-actions'},
-        hasPartial ? h('button', {type:'button', className:'secondary', onClick:props.onContinue}, 'Continue') : null,
-        h('button', {type:'button', className:'secondary', onClick:props.onRegenerate}, 'Regenerate')));
+    return h('div', {className:'msg-row assistant'},
+      h(MsgRowMeta, {role:'assistant'}),
+      h('div', {className:'msg assistant pending', 'data-phase':p.phase},
+        hasPartial ? h('span', null, p.revealed) : null,
+        h('div', {className:'interrupted-note'}, (hasPartial ? '⏸ ' : '⏹ ') + (hasPartial ? 'Generation stopped.' : 'Stopped before generating a response.')),
+        h('div', {className:'upgrade-actions'},
+          hasPartial ? h('button', {type:'button', className:'secondary', onClick:props.onContinue}, 'Continue') : null,
+          h('button', {type:'button', className:'secondary', onClick:props.onRegenerate}, 'Regenerate'))));
   }
   const showDots = p.phase === 'thinking' || p.phase === 'crossfade';
   const showText = p.phase === 'crossfade' || p.phase === 'streaming';
-  return h('div', {className:'msg assistant pending', 'data-phase':p.phase},
-    h('div', {className:'stream-wrap'},
-      showDots ? h(ThinkingDots, {fading: p.phase === 'crossfade'}) : null,
-      showText ? h('span', {className:'stream-text show'},
-        p.revealed, h('span', {className:'stream-cursor'})) : null));
+  return h('div', {className:'msg-row assistant'},
+    h(MsgRowMeta, {role:'assistant'}),
+    h('div', {className:'msg assistant pending', 'data-phase':p.phase},
+      h('div', {className:'stream-wrap'},
+        showDots ? h(ThinkingDots, {fading: p.phase === 'crossfade'}) : null,
+        showText ? h('span', {className:'stream-text show'},
+          p.revealed, h('span', {className:'stream-cursor'})) : null)));
 }
 
 function Chat(props) {
@@ -380,7 +412,7 @@ function Chat(props) {
   function finalizeMessage() {
     const p = pendingRef.current;
     if (!p) return;
-    setMessages(m => [...m, {role:'assistant', content: p.fullAnswer, folders: p.folders || []}]);
+    setMessages(m => [...m, {role:'assistant', content: p.fullAnswer, folders: p.folders || [], ts: Date.now()}]);
     pendingRef.current = null; setPending(null);
   }
 
@@ -438,7 +470,7 @@ function Chat(props) {
     setText('');
     // Drop any leftover interrupted bubble from a prior turn before starting a new one.
     if (pendingRef.current) { pendingRef.current = null; setPending(null); }
-    const next = [...messages, {role:'user', content}];
+    const next = [...messages, {role:'user', content, ts: Date.now()}];
     setMessages(next);
     await runSend(next);
   }
@@ -484,7 +516,9 @@ function Chat(props) {
       messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
       messages.map((m, i) =>
         h(React.Fragment, {key:i},
-        h('div', {className:'msg ' + m.role}, m.content),
+        h('div', {className:'msg-row ' + m.role},
+          h(MsgRowMeta, {role:m.role, ts:m.ts}),
+          h('div', {className:'msg ' + m.role}, m.content)),
         m.folders && m.folders.length
           ? h('div', {className:'cites'}, 'memory: ' + m.folders.map(f => '[' + f.n + '] ' + f.title).join('  '))
           : null)),
