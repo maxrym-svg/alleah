@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Alleah</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#121212">
@@ -34,6 +34,9 @@
   --purple:#dd9dff;
   --neutral:#9498a1;          /* replaces the old #5c636e, which failed 4.5:1 */
   --focus-ring:#7db8ff;
+  --vvh: 100dvh; /* live visual-viewport height, kept in sync from JS so the
+                    composer never ends up hidden behind the on-screen
+                    keyboard; falls back to 100dvh itself pre-hydration */
 }
 html[data-theme="light"]{
   color-scheme:light;
@@ -58,12 +61,23 @@ html[data-theme="light"]{
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text-primary);font:16px/1.5 -apple-system,system-ui,sans-serif}
-#root{height:100%;max-width:680px;margin:0 auto;display:flex;flex-direction:column}
+/* Root height tracks the live visual viewport (via --vvh, updated from JS on
+   resize/visualViewport change) rather than a static 100%, so when the
+   on-screen keyboard opens the whole column - and therefore the composer
+   pinned at its bottom - resizes with it instead of being covered. 100dvh
+   is the static fallback for the instant before JS attaches its listener. */
+#root{height:100dvh;height:var(--vvh,100dvh);max-width:680px;margin:0 auto;display:flex;flex-direction:column;overflow:hidden}
 a{color:var(--accent)}
 :focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
-header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px 4px}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px 4px;gap:8px;flex:none}
 h1{font-size:18px;margin:0}
-#thread{flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:10px}
+.header-actions{display:flex;gap:8px;align-items:center}
+#thread{flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:10px;min-height:0;-webkit-overflow-scrolling:touch}
+/* Wraps #thread + the "jump to latest" affordance so the latter can be
+   absolutely positioned relative to the scrollable thread, not the page. */
+.thread-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.jump-latest-btn{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:999px;padding:8px 16px;min-height:40px;font:inherit;font-size:13px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.35);cursor:pointer;z-index:5}
+.jump-latest-btn .badge-count{background:var(--accent);color:var(--accent-contrast);border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px}
 .msg{max-width:85%;padding:10px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word}
 .msg.user{align-self:flex-end;background:var(--accent);color:var(--accent-contrast);border-bottom-right-radius:4px}
 .msg.assistant{align-self:flex-start;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-bottom-left-radius:4px}
@@ -80,8 +94,15 @@ h1{font-size:18px;margin:0}
 .msg-row-meta{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--text-secondary);padding:0 2px}
 .msg-row-name{font-weight:700;color:var(--text-primary)}
 .msg-row-time{color:var(--text-secondary)}
-.composer{display:flex;gap:8px;padding:10px 14px calc(14px + env(safe-area-inset-bottom))}
-textarea{flex:1;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:120px}
+.composer{display:flex;gap:8px;align-items:flex-end;padding:10px 14px calc(14px + env(safe-area-inset-bottom));position:relative;flex:none}
+/* Composer-scoped tap-target bump (>=44x44) - deliberately scoped to
+   `.composer button`, not the global `button` rule, so filter pills, menu
+   items etc. elsewhere in the app are unaffected. */
+.composer button{min-height:44px;min-width:44px}
+.attach-btn{width:44px;height:44px;min-width:44px;background:var(--surface-2);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:0;font-size:19px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.attach-btn:active{background:var(--surface)}
+.attach-note{position:absolute;left:14px;right:14px;bottom:100%;margin-bottom:8px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-secondary);font-size:12.5px;padding:8px 12px;border-radius:10px;text-align:center}
+textarea{flex:1;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:11px 14px;font:inherit;resize:none;min-height:46px;max-height:min(40dvh,320px);overflow-y:auto;line-height:1.4}
 button{background:var(--accent);color:var(--accent-contrast);border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
 button.secondary{background:var(--surface-2);color:var(--text-primary);font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--border)}
 button.stop-btn{background:var(--danger);color:var(--danger-contrast)}
@@ -168,6 +189,34 @@ input,select{width:100%;background:var(--surface);color:var(--text-primary);bord
 @keyframes cursor-blink{50%{opacity:0}}
 .interrupted-note{font-size:12px;color:var(--warning);font-style:italic;margin-top:2px}
 .pending-stop{align-self:flex-start;margin-top:2px}
+/* ===== Conversation history: bottom-sheet on narrow viewports, anchored
+   dropdown panel at/above the 700px breakpoint. Triggered by the header
+   clock icon; "New chat" archives the outgoing thread into this list
+   instead of discarding it. ===== */
+.history-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;animation:backdrop-in .18s ease}
+@keyframes backdrop-in{from{opacity:0}to{opacity:1}}
+.history-sheet{position:fixed;left:0;right:0;bottom:0;max-height:75dvh;background:var(--surface);border-top-left-radius:20px;border-top-right-radius:20px;box-shadow:0 -12px 40px rgba(0,0,0,.5);z-index:41;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom);animation:sheet-up .22s cubic-bezier(.2,.8,.3,1)}
+@keyframes sheet-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-handle{width:36px;height:4px;border-radius:2px;background:var(--border);margin:10px auto 2px;flex:none}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 6px;flex:none}
+.sheet-head h2{font-size:16px;margin:0}
+.sheet-body{overflow-y:auto;padding:4px 10px 14px}
+.conv-row{display:flex;align-items:center}
+.conv-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;border-radius:12px;padding:10px 10px;min-height:60px;color:var(--text-primary);font:inherit;cursor:pointer}
+.conv-item:active{background:var(--surface-2)}
+.conv-item .conv-main{flex:1;min-width:0}
+.conv-item .conv-title{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-item .conv-snippet{font-size:12.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.conv-item .conv-time{font-size:11.5px;color:var(--text-secondary);flex:none}
+.conv-del{width:44px;height:44px;flex:none;background:transparent;border:0;color:var(--text-secondary);font-size:16px;border-radius:10px;cursor:pointer;min-height:44px}
+.conv-del:active{background:var(--surface-2);color:var(--danger)}
+.sheet-empty{padding:24px 14px;color:var(--text-secondary);font-size:13.5px;text-align:center}
+@media (min-width:700px){
+  .history-sheet{left:auto;right:14px;bottom:auto;top:62px;width:340px;max-height:min(70dvh,520px);border-radius:16px;animation:panel-in .16s ease}
+  .sheet-handle{display:none}
+  .history-backdrop{background:rgba(0,0,0,.25)}
+}
+@keyframes panel-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -178,6 +227,7 @@ const h = React.createElement;
 const SB_URL = "https://sphnmcjlxxzgovisgepo.supabase.co";
 const supabase = createClient(SB_URL, "sb_publishable_vVfIttSbf_XLWKl2xahBWA_-sXU34L0");
 const HISTORY_KEY = "alleah_chat_v1";
+const CONVERSATIONS_KEY = "alleah_conversations_v1"; // archived past threads, shown in the History bottom sheet
 const GOALS_KEY = "alleah_goals_v1";
 const THEME_KEY = "alleah_theme_v1";
 
@@ -202,6 +252,27 @@ function applyTheme(theme) {
   try { localStorage.setItem(THEME_KEY, theme); } catch {}
 }
 applyTheme(getInitialTheme());
+
+// ===== Keyboard-safe viewport height =====
+// Keeps --vvh (read by #root's height in CSS) in sync with the live visual
+// viewport so the composer - which sits in normal flex flow at the bottom
+// of #root - resizes up above the on-screen keyboard instead of being
+// covered by it. visualViewport reports the keyboard-aware height directly;
+// 100dvh (the CSS fallback) alone isn't enough on browsers that dispatch
+// resize events without changing dvh promptly, so we drive it from JS too.
+function installViewportHeightSync() {
+  function update() {
+    const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty('--vvh', height + 'px');
+  }
+  update();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', update);
+    window.visualViewport.addEventListener('scroll', update);
+  }
+  window.addEventListener('orientationchange', update);
+}
+installViewportHeightSync();
 
 // ===== Header menu =====
 // Single source of truth for the view links shown in the header menu.
@@ -262,6 +333,44 @@ function HeaderMenu(props) {
         onClick:() => { setOpen(false); props.onSignOut(); },
       }, 'Sign out')
     ) : null);
+}
+
+// ===== Conversation history: bottom-sheet (narrow) / dropdown panel (wide) =====
+// Archived conversations (written by Chat's onNewChat / openConversation
+// below) are plain localStorage records - no new table, following the same
+// client-side-only pattern already used for GOALS_KEY. Kept intentionally
+// separate from HISTORY_KEY (the live thread) so switching conversations
+// can never silently merge or lose messages.
+function fmtRelTime(ts) {
+  const diff = Date.now() - ts;
+  const MIN = 60000, HOUR = 3600000, DAY = 86400000;
+  if (diff < HOUR) return Math.max(1, Math.round(diff / MIN)) + 'm ago';
+  if (diff < DAY) return Math.round(diff / HOUR) + 'h ago';
+  return Math.round(diff / DAY) + 'd ago';
+}
+function HistorySheet(props) {
+  React.useEffect(() => {
+    function onKeyDown(e) { if (e.key === 'Escape') props.onClose(); }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+  return h(React.Fragment, null,
+    h('div', {className:'history-backdrop', onClick:props.onClose}),
+    h('div', {className:'history-sheet', role:'dialog', 'aria-modal':'true', 'aria-label':'Conversation history'},
+      h('div', {className:'sheet-handle'}),
+      h('div', {className:'sheet-head'},
+        h('h2', null, 'History'),
+        h('button', {type:'button', className:'menu-btn', style:{width:'40px',height:'40px',fontSize:'16px'}, 'aria-label':'Close history', onClick:props.onClose}, '✕')),
+      h('div', {className:'sheet-body'},
+        props.conversations.length === 0
+          ? h('p', {className:'sheet-empty'}, 'Conversations you start fresh from ("New chat") are saved here, so nothing is lost.')
+          : props.conversations.map(c => h('div', {className:'conv-row', key:c.id},
+              h('button', {type:'button', className:'conv-item', onClick:() => props.onOpen(c)},
+                h('span', {className:'conv-main'},
+                  h('div', {className:'conv-title'}, c.title),
+                  h('div', {className:'conv-snippet'}, c.snippet)),
+                h('span', {className:'conv-time'}, fmtRelTime(c.ts))),
+              h('button', {type:'button', className:'conv-del', 'aria-label':'Delete conversation', onClick:() => props.onDelete(c.id)}, '🗑'))))));
 }
 
 function Auth() {
@@ -354,15 +463,30 @@ function PendingBubble(props) {
           p.revealed, h('span', {className:'stream-cursor'})) : null)));
 }
 
+function loadConversations() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CONVERSATIONS_KEY));
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+
 function Chat(props) {
   const [messages, setMessages] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
   });
+  const [conversations, setConversations] = React.useState(loadConversations);
   const [text, setText] = React.useState('');
   const [pending, setPending] = React.useState(null); // {phase, revealed, fullAnswer, folders}
   const [err, setErr] = React.useState('');
   const [view, setView] = React.useState('chat');
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [autoScroll, setAutoScroll] = React.useState(true); // false once the user manually scrolls away from the bottom
+  const [newCount, setNewCount] = React.useState(0); // messages arrived while autoScroll is paused
+  const [attachNote, setAttachNote] = React.useState('');
+  const threadRef = React.useRef(null);
   const endRef = React.useRef(null);
+  const taRef = React.useRef(null);
+  const prevLenRef = React.useRef(messages.length);
   const pendingRef = React.useRef(null);
   const abortRef = React.useRef(null);
   const revealTimerRef = React.useRef(null);
@@ -373,8 +497,28 @@ function Chat(props) {
 
   React.useEffect(() => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-60)));
-    endRef.current && endRef.current.scrollIntoView({behavior:'smooth'});
-  }, [messages, pending]);
+    if (autoScroll) {
+      endRef.current && endRef.current.scrollIntoView({behavior:'smooth'});
+      if (messages.length !== prevLenRef.current) setNewCount(0);
+    } else if (messages.length > prevLenRef.current) {
+      setNewCount(c => c + (messages.length - prevLenRef.current));
+    }
+    prevLenRef.current = messages.length;
+  }, [messages, pending, autoScroll]);
+
+  React.useEffect(() => {
+    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations.slice(0, 50)));
+  }, [conversations]);
+
+  // Auto-grow the composer textarea; the actual on-screen cap is CSS
+  // (max-height: min(40dvh, 320px)) so it can never grow past the visible,
+  // keyboard-safe area no matter what height we compute here.
+  React.useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }, [text]);
 
   React.useEffect(() => () => {
     clearTimers();
@@ -390,6 +534,25 @@ function Chat(props) {
     if (revealTimerRef.current) { clearInterval(revealTimerRef.current); revealTimerRef.current = null; }
     if (guardTimerRef.current) { clearTimeout(guardTimerRef.current); guardTimerRef.current = null; }
     if (crossfadeTimerRef.current) { clearTimeout(crossfadeTimerRef.current); crossfadeTimerRef.current = null; }
+  }
+
+  // Manual scroll detection: once the user scrolls more than ~1 message away
+  // from the bottom, auto-scroll-to-bottom is suspended so an in-progress
+  // reply doesn't yank them back down. Returning within the threshold (or
+  // tapping "jump to latest") resumes it.
+  function handleThreadScroll() {
+    const el = threadRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distanceFromBottom < 96;
+    setAutoScroll(nearBottom);
+    if (nearBottom) setNewCount(0);
+  }
+
+  function jumpToLatest() {
+    setAutoScroll(true);
+    setNewCount(0);
+    endRef.current && endRef.current.scrollIntoView({behavior:'smooth'});
   }
 
   function startReveal() {
@@ -468,6 +631,8 @@ function Chat(props) {
     const content = text.trim();
     if (!content || generating) return;
     setText('');
+    setAutoScroll(true); // sending re-engages auto-follow even if the user had scrolled up
+    setNewCount(0);
     // Drop any leftover interrupted bubble from a prior turn before starting a new one.
     if (pendingRef.current) { pendingRef.current = null; setPending(null); }
     const next = [...messages, {role:'user', content, ts: Date.now()}];
@@ -500,36 +665,102 @@ function Chat(props) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
+  function onAttach() {
+    setAttachNote('Attachments aren\u2019t supported yet.');
+    setTimeout(() => setAttachNote(''), 2200);
+  }
+
+  // Turns the live thread into a History entry. Used both by "New chat"
+  // (archive-then-clear) and by opening a different past conversation
+  // (archive-then-swap), so neither path can silently drop messages.
+  function archiveCurrentIfAny() {
+    if (!messages.length) return null;
+    const firstUser = messages.find(m => m.role === 'user');
+    const assistants = messages.filter(m => m.role === 'assistant');
+    const lastAssistant = assistants.length ? assistants[assistants.length - 1] : null;
+    return {
+      id: 'c' + Date.now().toString(36),
+      title: firstUser ? firstUser.content.slice(0, 48) : 'Conversation',
+      snippet: lastAssistant ? lastAssistant.content.slice(0, 80) : '',
+      ts: Date.now(),
+      messages,
+    };
+  }
+
+  function newChat() {
+    if (messages.length && !confirm('Start a new chat? This conversation will be saved to History. (Your memory folders are not affected.)')) return;
+    const archived = archiveCurrentIfAny();
+    if (archived) setConversations(cs => [archived, ...cs]);
+    clearTimers();
+    if (abortRef.current) abortRef.current.abort();
+    pendingRef.current = null; setPending(null);
+    setMessages([]);
+    setAutoScroll(true); setNewCount(0);
+  }
+
+  function openConversation(c) {
+    const archived = archiveCurrentIfAny();
+    setConversations(cs => {
+      const rest = cs.filter(x => x.id !== c.id);
+      return archived ? [archived, ...rest] : rest;
+    });
+    clearTimers();
+    if (abortRef.current) abortRef.current.abort();
+    pendingRef.current = null; setPending(null);
+    setMessages(c.messages);
+    setHistoryOpen(false);
+    setAutoScroll(true); setNewCount(0);
+  }
+
+  function deleteConversation(id) {
+    setConversations(cs => cs.filter(c => c.id !== id));
+  }
+
   return h(React.Fragment, null,
     h('header', null,
       h('h1', null, 'Alleah'),
-      h(HeaderMenu, {
-        view, setView,
-        onNewChat: () => { if (confirm('Clear this conversation? (Your memory folders are not affected.)')) setMessages([]); },
-        onSignOut: () => supabase.auth.signOut(),
-      })),
+      h('div', {className:'header-actions'},
+        h('button', {
+          type:'button', className:'menu-btn',
+          'aria-label': 'Conversation history' + (conversations.length ? ' (' + conversations.length + ')' : ''),
+          onClick:() => setHistoryOpen(true),
+        }, '🕘'),
+        h(HeaderMenu, {
+          view, setView,
+          onNewChat: newChat,
+          onSignOut: () => supabase.auth.signOut(),
+        }))),
     view === 'tasks' ? h(Tasks, {session: props.session})
     : view === 'goals' ? h(Goals, null)
     : view === 'upgrades' ? h(Upgrades, {session: props.session})
     : h(React.Fragment, null,
-    h('div', {id:'thread'},
-      messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
-      messages.map((m, i) =>
-        h(React.Fragment, {key:i},
-        h('div', {className:'msg-row ' + m.role},
-          h(MsgRowMeta, {role:m.role, ts:m.ts}),
-          h('div', {className:'msg ' + m.role}, m.content)),
-        m.folders && m.folders.length
-          ? h('div', {className:'cites'}, 'memory: ' + m.folders.map(f => '[' + f.n + '] ' + f.title).join('  '))
-          : null)),
-      pending ? h(PendingBubble, {p: pending, onContinue: continueGen, onRegenerate: regenerate}) : null,
-      h('div', {ref:endRef})),
+    h('div', {className:'thread-wrap'},
+      h('div', {id:'thread', ref:threadRef, onScroll:handleThreadScroll},
+        messages.length === 0 ? h('p', {className:'muted', style:{padding:'0 6px'}}, 'Talk to me. What you tell me about what you know gets remembered - automatically.') : null,
+        messages.map((m, i) =>
+          h(React.Fragment, {key:i},
+          h('div', {className:'msg-row ' + m.role},
+            h(MsgRowMeta, {role:m.role, ts:m.ts}),
+            h('div', {className:'msg ' + m.role}, m.content)),
+          m.folders && m.folders.length
+            ? h('div', {className:'cites'}, 'memory: ' + m.folders.map(f => '[' + f.n + '] ' + f.title).join('  '))
+            : null)),
+        pending ? h(PendingBubble, {p: pending, onContinue: continueGen, onRegenerate: regenerate}) : null,
+        h('div', {ref:endRef})),
+      !autoScroll ? h('button', {type:'button', className:'jump-latest-btn', onClick:jumpToLatest},
+        '↓ Jump to latest', newCount ? h('span', {className:'badge-count'}, newCount) : null) : null),
     err ? h('p', {className:'err'}, '⚠ ' + err) : null,
     h('div', {className:'composer'},
-      h('textarea', {placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
+      attachNote ? h('div', {className:'attach-note'}, attachNote) : null,
+      h('button', {type:'button', className:'attach-btn', 'aria-label':'Attach file', onClick:onAttach}, '📎'),
+      h('textarea', {ref:taRef, placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
       generating
         ? h('button', {type:'button', className:'stop-btn', onClick:stop}, 'Stop')
-        : h('button', {disabled:!text.trim(), onClick:send}, 'Send'))));
+        : h('button', {disabled:!text.trim(), onClick:send}, 'Send'))),
+    historyOpen ? h(HistorySheet, {
+      conversations, onClose:() => setHistoryOpen(false),
+      onOpen:openConversation, onDelete:deleteConversation,
+    }) : null);
 }
 
 // ===== Task tray =====
