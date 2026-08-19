@@ -217,6 +217,17 @@ input,select{width:100%;background:var(--surface);color:var(--text-primary);bord
   .history-backdrop{background:rgba(0,0,0,.25)}
 }
 @keyframes panel-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+/* ===== Domain-scoped research: request sheet + review panel =====
+   Reuses the history-sheet visual pattern. This is a client-only
+   composer helper - see ResearchScopeSheet below - it never touches
+   send()/runSend() or the /functions/v1/ask payload. */
+.scope-btn{width:44px;height:44px;min-width:44px;background:var(--surface-2);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:0;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.scope-btn:active{background:var(--surface)}
+.scope-preview{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:8px;font-size:13px;color:var(--text-primary);max-height:220px;overflow-y:auto}
+.scope-note{font-size:12px;color:var(--text-secondary);margin-top:8px;padding:8px 10px;background:var(--surface-2);border-radius:10px}
+.scope-drafts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.scope-draft-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:12.5px}
+.scope-draft-item .small{margin:2px 0 0}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -230,6 +241,7 @@ const HISTORY_KEY = "alleah_chat_v1";
 const CONVERSATIONS_KEY = "alleah_conversations_v1"; // archived past threads, shown in the History bottom sheet
 const GOALS_KEY = "alleah_goals_v1";
 const THEME_KEY = "alleah_theme_v1";
+const RESEARCH_DRAFTS_KEY = "alleah_research_drafts_v1"; // domain-scoped research drafts, client-only (see ResearchScopeSheet)
 
 // ===== Theme (light / dark, WCAG AA token pass) =====
 // Tokens live in CSS (:root and [data-theme="light"]); this just flips the
@@ -470,6 +482,107 @@ function loadConversations() {
   } catch { return []; }
 }
 
+// ===== Domain-scoped research request (preview-only composer helper) =====
+// Explicit-affordance ONLY: opened by the dedicated 🔎 button in the
+// composer (see Chat below). There is no message-text/URL scanning
+// anywhere in this file - ordinary chat turns that happen to contain a
+// link are never inspected or intercepted by this feature.
+//
+// This sheet is entirely local: it builds a plain instruction string and
+// shows it in a read-only review panel for Max to copy into chat himself.
+// It does NOT call fetch(), does NOT touch runSend()/send(), and never
+// reaches /functions/v1/ask. Turning this into a real queued task still
+// goes through the normal conversation + queue_background_task tool path
+// server-side (see ask-function.ts) - this sheet only drafts the wording.
+function loadResearchDrafts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RESEARCH_DRAFTS_KEY));
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+
+function buildDomainScopeInstruction(topic, domain) {
+  const t = topic.trim();
+  const d = domain.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  return [
+    'Research request: ' + t,
+    '',
+    'Scope note (for Max to include if he asks Alleah to queue this): keep the',
+    'investigation limited to sources under "' + d + '" where possible, and say',
+    'plainly if that domain doesn\u2019t have enough to answer from.',
+    '',
+    'This is a draft for review only - nothing has been sent or queued. Copy the',
+    'text above into chat and ask Alleah to queue it as a research task if you',
+    'want to proceed.',
+  ].join('\n');
+}
+
+function ResearchScopeSheet(props) {
+  const [topic, setTopic] = React.useState('');
+  const [domain, setDomain] = React.useState('');
+  const [preview, setPreview] = React.useState('');
+  const [copied, setCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    function onKeyDown(e) { if (e.key === 'Escape') props.onClose(); }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  function generate(e) {
+    e.preventDefault();
+    if (!topic.trim() || !domain.trim()) return;
+    setPreview(buildDomainScopeInstruction(topic, domain));
+    setCopied(false);
+  }
+
+  async function copyPreview() {
+    try {
+      await navigator.clipboard.writeText(preview);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  }
+
+  function saveDraft() {
+    if (!preview) return;
+    props.onSaveDraft({
+      id: 'rd' + Date.now().toString(36),
+      topic: topic.trim(),
+      domain: domain.trim(),
+      text: preview,
+      ts: Date.now(),
+    });
+    setTopic(''); setDomain(''); setPreview('');
+  }
+
+  return h(React.Fragment, null,
+    h('div', {className:'history-backdrop', onClick:props.onClose}),
+    h('div', {className:'history-sheet', role:'dialog', 'aria-modal':'true', 'aria-label':'New domain-scoped research request'},
+      h('div', {className:'sheet-handle'}),
+      h('div', {className:'sheet-head'},
+        h('h2', null, 'Scope a research request'),
+        h('button', {type:'button', className:'menu-btn', style:{width:'40px',height:'40px',fontSize:'16px'}, 'aria-label':'Close', onClick:props.onClose}, '✕')),
+      h('div', {className:'sheet-body'},
+        h('p', {className:'small', style:{margin:'0 0 10px'}}, 'Draft wording for a research task that stays scoped to one domain. This only builds preview text - it isn\u2019t sent anywhere.'),
+        h('form', {className:'addform', onSubmit:generate},
+          h('input', {placeholder:'Topic, e.g. "pricing tiers"', value:topic, onChange:e=>setTopic(e.target.value)}),
+          h('input', {placeholder:'Domain to scope to, e.g. docs.stripe.com', value:domain, onChange:e=>setDomain(e.target.value)}),
+          h('div', {className:'row'},
+            h('button', {type:'submit', disabled:!topic.trim() || !domain.trim()}, 'Generate preview'))),
+        preview ? h('div', null,
+          h('div', {className:'scope-preview'}, preview),
+          h('div', {className:'row', style:{marginTop:'8px'}},
+            h('button', {type:'button', className:'secondary', onClick:copyPreview}, copied ? 'Copied ✓' : 'Copy text'),
+            h('button', {type:'button', className:'secondary', onClick:saveDraft}, 'Save draft')),
+          h('div', {className:'scope-note'}, 'Preview only - nothing was queued or sent. Paste this into chat yourself and ask Alleah to queue it if you want it to become a real task.')) : null,
+        props.drafts.length ? h('div', {className:'scope-drafts'},
+          h('p', {className:'small', style:{margin:'10px 0 0',fontWeight:700,color:'var(--text-primary)'}}, 'Saved drafts'),
+          props.drafts.map(d => h('div', {className:'scope-draft-item', key:d.id},
+            h('div', null, h('b', null, d.topic), ' \u2192 ', d.domain),
+            h('div', {className:'small'}, fmtRelTime(d.ts))))) : null)));
+}
+
 function Chat(props) {
   const [messages, setMessages] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
@@ -483,6 +596,8 @@ function Chat(props) {
   const [autoScroll, setAutoScroll] = React.useState(true); // false once the user manually scrolls away from the bottom
   const [newCount, setNewCount] = React.useState(0); // messages arrived while autoScroll is paused
   const [attachNote, setAttachNote] = React.useState('');
+  const [scopeOpen, setScopeOpen] = React.useState(false); // domain-scoped research sheet, opened ONLY by its own button below
+  const [researchDrafts, setResearchDrafts] = React.useState(loadResearchDrafts);
   const threadRef = React.useRef(null);
   const endRef = React.useRef(null);
   const taRef = React.useRef(null);
@@ -509,6 +624,14 @@ function Chat(props) {
   React.useEffect(() => {
     localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations.slice(0, 50)));
   }, [conversations]);
+
+  React.useEffect(() => {
+    localStorage.setItem(RESEARCH_DRAFTS_KEY, JSON.stringify(researchDrafts.slice(0, 30)));
+  }, [researchDrafts]);
+
+  function saveResearchDraft(draft) {
+    setResearchDrafts(ds => [draft, ...ds]);
+  }
 
   // Auto-grow the composer textarea; the actual on-screen cap is CSS
   // (max-height: min(40dvh, 320px)) so it can never grow past the visible,
@@ -579,6 +702,11 @@ function Chat(props) {
     pendingRef.current = null; setPending(null);
   }
 
+  // NOTE: runSend() sends EXACTLY the chat turns Max typed, unmodified, to
+  // /functions/v1/ask - the same production endpoint used everywhere else
+  // in this file. The domain-scoped research sheet above is fully
+  // decoupled from this function: it never calls it, never mutates the
+  // `turns` array, and never appends any directive text to this payload.
   async function runSend(turns) {
     setErr('');
     lastTurnsRef.current = turns;
@@ -635,6 +763,9 @@ function Chat(props) {
     setNewCount(0);
     // Drop any leftover interrupted bubble from a prior turn before starting a new one.
     if (pendingRef.current) { pendingRef.current = null; setPending(null); }
+    // Sent as-is: no URL scan, no interception, no directive injection. Any
+    // link Max happens to paste in an ordinary message flows through
+    // unmodified, exactly like before this feature existed.
     const next = [...messages, {role:'user', content, ts: Date.now()}];
     setMessages(next);
     await runSend(next);
@@ -753,6 +884,7 @@ function Chat(props) {
     h('div', {className:'composer'},
       attachNote ? h('div', {className:'attach-note'}, attachNote) : null,
       h('button', {type:'button', className:'attach-btn', 'aria-label':'Attach file', onClick:onAttach}, '📎'),
+      h('button', {type:'button', className:'scope-btn', 'aria-label':'New domain-scoped research request', onClick:() => setScopeOpen(true)}, '🔎'),
       h('textarea', {ref:taRef, placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
       generating
         ? h('button', {type:'button', className:'stop-btn', onClick:stop}, 'Stop')
@@ -760,6 +892,11 @@ function Chat(props) {
     historyOpen ? h(HistorySheet, {
       conversations, onClose:() => setHistoryOpen(false),
       onOpen:openConversation, onDelete:deleteConversation,
+    }) : null,
+    scopeOpen ? h(ResearchScopeSheet, {
+      onClose:() => setScopeOpen(false),
+      onSaveDraft: saveResearchDraft,
+      drafts: researchDrafts,
     }) : null);
 }
 
@@ -1266,3 +1403,4 @@ function App() {
 }
 createRoot(document.getElementById('root')).render(h(App));
 </script></body></html>
+
