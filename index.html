@@ -115,7 +115,7 @@ input,select{width:100%;background:var(--surface);color:var(--text-primary);bord
 .muted{color:var(--text-secondary);font-size:14px}
 .err{color:var(--danger);font-size:14px;padding:0 14px}
 .typing{align-self:flex-start;color:var(--text-secondary);font-size:14px;padding:0 6px}
-#tasks,#goals,#upgrades{flex:1;overflow-y:auto;padding:8px 14px}
+#tasks,#goals{flex:1;overflow-y:auto;padding:8px 14px}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid var(--border)}
 .dot{width:8px;height:8px;border-radius:50%;flex:none}
 .status-icon{font-size:11px;line-height:1}
@@ -217,17 +217,48 @@ input,select{width:100%;background:var(--surface);color:var(--text-primary);bord
   .history-backdrop{background:rgba(0,0,0,.25)}
 }
 @keyframes panel-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
-/* ===== Domain-scoped research: request sheet + review panel =====
-   Reuses the history-sheet visual pattern. This is a client-only
-   composer helper - see ResearchScopeSheet below - it never touches
-   send()/runSend() or the /functions/v1/ask payload. */
-.scope-btn{width:44px;height:44px;min-width:44px;background:var(--surface-2);color:var(--text-primary);border:1px solid var(--border);border-radius:14px;padding:0;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
-.scope-btn:active{background:var(--surface)}
-.scope-preview{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:8px;font-size:13px;color:var(--text-primary);max-height:220px;overflow-y:auto}
-.scope-note{font-size:12px;color:var(--text-secondary);margin-top:8px;padding:8px 10px;background:var(--surface-2);border-radius:10px}
-.scope-drafts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-.scope-draft-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:12.5px}
-.scope-draft-item .small{margin:2px 0 0}
+/* ===== Updates tab: radial "snowflake" systems map =====
+   Full-bleed pan/zoom canvas replacing the old flat proposal list. The
+   world (.map-world) is transformed via translate+scale driven from JS
+   state (pan/zoom); node/line children live in world-space px so they
+   scale naturally with zoom, same as a map tile layer would. */
+.updates-view{flex:1;position:relative;overflow:hidden;min-height:0;background:radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 6%, var(--bg)) 0%, var(--bg) 70%)}
+.map-viewport{position:absolute;inset:0;overflow:hidden;cursor:grab;touch-action:none}
+.map-viewport:active{cursor:grabbing}
+.map-world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+.map-lines{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.map-node{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:50%;text-align:center;cursor:pointer;user-select:none;transform:translate(-50%,-50%);transition:filter .15s ease}
+.map-node-label{font-size:13px;font-weight:700;padding:0 8px;line-height:1.15;pointer-events:none;color:var(--text-primary)}
+.map-node-sub{font-size:10px;opacity:.8;margin-top:2px;pointer-events:none;color:var(--text-secondary)}
+.map-node-center{width:132px;height:132px;background:radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 55%, var(--surface)), var(--surface-2));border:2px solid var(--accent);box-shadow:0 0 26px 6px color-mix(in srgb, var(--accent) 35%, transparent);z-index:2}
+.map-node-center .map-node-label{font-size:16px;letter-spacing:.03em}
+.map-node-system{width:104px;height:104px;background:var(--surface-2);border:2px solid var(--border);z-index:1}
+.map-node-idle{opacity:.68}
+.map-node-badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:999px;background:#ff8a3d;color:#2b1200;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;box-shadow:0 0 0 2px var(--bg)}
+.map-node-pulse-1{border-color:#c9702f;background:radial-gradient(circle at 35% 30%, rgba(255,138,61,.35), var(--surface-2));animation:mapPulse1 3.2s ease-in-out infinite}
+.map-node-pulse-2{border-color:#e8631f;background:radial-gradient(circle at 35% 30%, rgba(255,138,61,.45), var(--surface-2));animation:mapPulse2 1.8s ease-in-out infinite}
+.map-node-pulse-3{border-color:#ff8a3d;background:radial-gradient(circle at 35% 30%, rgba(255,138,61,.55), var(--surface-2));animation:mapPulse3 .85s ease-in-out infinite}
+@keyframes mapPulse1{0%,100%{box-shadow:0 0 6px 2px rgba(255,138,61,.3);filter:brightness(1)}50%{box-shadow:0 0 14px 5px rgba(255,138,61,.55);filter:brightness(1.12)}}
+@keyframes mapPulse2{0%,100%{box-shadow:0 0 10px 3px rgba(255,138,61,.45);filter:brightness(1.02)}50%{box-shadow:0 0 22px 8px rgba(255,138,61,.8);filter:brightness(1.28)}}
+@keyframes mapPulse3{0%,100%{box-shadow:0 0 14px 4px rgba(255,138,61,.6);filter:brightness(1.08)}50%{box-shadow:0 0 34px 12px rgba(255,153,51,1);filter:brightness(1.55)}}
+.map-zoom-controls{position:absolute;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;z-index:5}
+.map-zoom-btn{width:44px;height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.map-zoom-btn:active{background:var(--surface-2)}
+.map-hint{position:absolute;left:14px;top:14px;z-index:5;font-size:11.5px;color:var(--text-secondary);background:color-mix(in srgb, var(--surface) 78%, transparent);border:1px solid var(--border);border-radius:999px;padding:6px 12px;pointer-events:none}
+.update-panel{position:absolute;left:0;right:0;top:0;height:34%;min-height:210px;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:0 16px 32px rgba(0,0,0,.4);z-index:20;display:flex;flex-direction:column}
+.update-panel-head{display:flex;align-items:center;justify-content:space-between;padding:10px 8px 0 14px;flex:none}
+.update-panel-tabs{display:flex;gap:6px}
+.update-panel-tab{background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);border-radius:999px;padding:7px 16px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.update-panel-tab.active{background:var(--text-primary);color:var(--bg);border-color:var(--text-primary)}
+.update-panel-tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-left:6px;border-radius:999px;background:#ff8a3d;color:#2b1200;font-size:10px;font-weight:800;padding:0 4px}
+.update-panel-close{width:40px;height:40px;flex:none;background:transparent;border:0;color:var(--text-secondary);font-size:18px;border-radius:10px;cursor:pointer}
+.update-panel-close:active{background:var(--surface-2)}
+.update-panel-name{font-size:15px;font-weight:700;margin:10px 14px 0;color:var(--text-primary)}
+.update-panel-body{flex:1;min-height:0;overflow-y:auto;padding:8px 16px 18px;-webkit-overflow-scrolling:touch}
+.update-panel-about{color:var(--text-secondary);font-size:14.5px;white-space:pre-wrap;margin:0}
+.update-panel-update-item + .update-panel-update-item{margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.update-panel-update-title{font-size:14.5px;font-weight:700;margin:0 0 4px;color:var(--text-primary)}
+.update-panel-update-body{font-size:14px;color:var(--text-secondary);margin:0;white-space:pre-wrap}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -241,7 +272,6 @@ const HISTORY_KEY = "alleah_chat_v1";
 const CONVERSATIONS_KEY = "alleah_conversations_v1"; // archived past threads, shown in the History bottom sheet
 const GOALS_KEY = "alleah_goals_v1";
 const THEME_KEY = "alleah_theme_v1";
-const RESEARCH_DRAFTS_KEY = "alleah_research_drafts_v1"; // domain-scoped research drafts, client-only (see ResearchScopeSheet)
 
 // ===== Theme (light / dark, WCAG AA token pass) =====
 // Tokens live in CSS (:root and [data-theme="light"]); this just flips the
@@ -294,7 +324,7 @@ const VIEWS = [
   {key:'chat', label:'Chat'},
   {key:'tasks', label:'Tasks'},
   {key:'goals', label:'Goals'},
-  {key:'upgrades', label:'Upgrades'},
+  {key:'upgrades', label:'Updates'},
 ];
 
 function HeaderMenu(props) {
@@ -482,107 +512,6 @@ function loadConversations() {
   } catch { return []; }
 }
 
-// ===== Domain-scoped research request (preview-only composer helper) =====
-// Explicit-affordance ONLY: opened by the dedicated 🔎 button in the
-// composer (see Chat below). There is no message-text/URL scanning
-// anywhere in this file - ordinary chat turns that happen to contain a
-// link are never inspected or intercepted by this feature.
-//
-// This sheet is entirely local: it builds a plain instruction string and
-// shows it in a read-only review panel for Max to copy into chat himself.
-// It does NOT call fetch(), does NOT touch runSend()/send(), and never
-// reaches /functions/v1/ask. Turning this into a real queued task still
-// goes through the normal conversation + queue_background_task tool path
-// server-side (see ask-function.ts) - this sheet only drafts the wording.
-function loadResearchDrafts() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(RESEARCH_DRAFTS_KEY));
-    return Array.isArray(raw) ? raw : [];
-  } catch { return []; }
-}
-
-function buildDomainScopeInstruction(topic, domain) {
-  const t = topic.trim();
-  const d = domain.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
-  return [
-    'Research request: ' + t,
-    '',
-    'Scope note (for Max to include if he asks Alleah to queue this): keep the',
-    'investigation limited to sources under "' + d + '" where possible, and say',
-    'plainly if that domain doesn\u2019t have enough to answer from.',
-    '',
-    'This is a draft for review only - nothing has been sent or queued. Copy the',
-    'text above into chat and ask Alleah to queue it as a research task if you',
-    'want to proceed.',
-  ].join('\n');
-}
-
-function ResearchScopeSheet(props) {
-  const [topic, setTopic] = React.useState('');
-  const [domain, setDomain] = React.useState('');
-  const [preview, setPreview] = React.useState('');
-  const [copied, setCopied] = React.useState(false);
-
-  React.useEffect(() => {
-    function onKeyDown(e) { if (e.key === 'Escape') props.onClose(); }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
-
-  function generate(e) {
-    e.preventDefault();
-    if (!topic.trim() || !domain.trim()) return;
-    setPreview(buildDomainScopeInstruction(topic, domain));
-    setCopied(false);
-  }
-
-  async function copyPreview() {
-    try {
-      await navigator.clipboard.writeText(preview);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
-  }
-
-  function saveDraft() {
-    if (!preview) return;
-    props.onSaveDraft({
-      id: 'rd' + Date.now().toString(36),
-      topic: topic.trim(),
-      domain: domain.trim(),
-      text: preview,
-      ts: Date.now(),
-    });
-    setTopic(''); setDomain(''); setPreview('');
-  }
-
-  return h(React.Fragment, null,
-    h('div', {className:'history-backdrop', onClick:props.onClose}),
-    h('div', {className:'history-sheet', role:'dialog', 'aria-modal':'true', 'aria-label':'New domain-scoped research request'},
-      h('div', {className:'sheet-handle'}),
-      h('div', {className:'sheet-head'},
-        h('h2', null, 'Scope a research request'),
-        h('button', {type:'button', className:'menu-btn', style:{width:'40px',height:'40px',fontSize:'16px'}, 'aria-label':'Close', onClick:props.onClose}, '✕')),
-      h('div', {className:'sheet-body'},
-        h('p', {className:'small', style:{margin:'0 0 10px'}}, 'Draft wording for a research task that stays scoped to one domain. This only builds preview text - it isn\u2019t sent anywhere.'),
-        h('form', {className:'addform', onSubmit:generate},
-          h('input', {placeholder:'Topic, e.g. "pricing tiers"', value:topic, onChange:e=>setTopic(e.target.value)}),
-          h('input', {placeholder:'Domain to scope to, e.g. docs.stripe.com', value:domain, onChange:e=>setDomain(e.target.value)}),
-          h('div', {className:'row'},
-            h('button', {type:'submit', disabled:!topic.trim() || !domain.trim()}, 'Generate preview'))),
-        preview ? h('div', null,
-          h('div', {className:'scope-preview'}, preview),
-          h('div', {className:'row', style:{marginTop:'8px'}},
-            h('button', {type:'button', className:'secondary', onClick:copyPreview}, copied ? 'Copied ✓' : 'Copy text'),
-            h('button', {type:'button', className:'secondary', onClick:saveDraft}, 'Save draft')),
-          h('div', {className:'scope-note'}, 'Preview only - nothing was queued or sent. Paste this into chat yourself and ask Alleah to queue it if you want it to become a real task.')) : null,
-        props.drafts.length ? h('div', {className:'scope-drafts'},
-          h('p', {className:'small', style:{margin:'10px 0 0',fontWeight:700,color:'var(--text-primary)'}}, 'Saved drafts'),
-          props.drafts.map(d => h('div', {className:'scope-draft-item', key:d.id},
-            h('div', null, h('b', null, d.topic), ' \u2192 ', d.domain),
-            h('div', {className:'small'}, fmtRelTime(d.ts))))) : null)));
-}
-
 function Chat(props) {
   const [messages, setMessages] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
@@ -596,8 +525,6 @@ function Chat(props) {
   const [autoScroll, setAutoScroll] = React.useState(true); // false once the user manually scrolls away from the bottom
   const [newCount, setNewCount] = React.useState(0); // messages arrived while autoScroll is paused
   const [attachNote, setAttachNote] = React.useState('');
-  const [scopeOpen, setScopeOpen] = React.useState(false); // domain-scoped research sheet, opened ONLY by its own button below
-  const [researchDrafts, setResearchDrafts] = React.useState(loadResearchDrafts);
   const threadRef = React.useRef(null);
   const endRef = React.useRef(null);
   const taRef = React.useRef(null);
@@ -624,14 +551,6 @@ function Chat(props) {
   React.useEffect(() => {
     localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations.slice(0, 50)));
   }, [conversations]);
-
-  React.useEffect(() => {
-    localStorage.setItem(RESEARCH_DRAFTS_KEY, JSON.stringify(researchDrafts.slice(0, 30)));
-  }, [researchDrafts]);
-
-  function saveResearchDraft(draft) {
-    setResearchDrafts(ds => [draft, ...ds]);
-  }
 
   // Auto-grow the composer textarea; the actual on-screen cap is CSS
   // (max-height: min(40dvh, 320px)) so it can never grow past the visible,
@@ -702,11 +621,6 @@ function Chat(props) {
     pendingRef.current = null; setPending(null);
   }
 
-  // NOTE: runSend() sends EXACTLY the chat turns Max typed, unmodified, to
-  // /functions/v1/ask - the same production endpoint used everywhere else
-  // in this file. The domain-scoped research sheet above is fully
-  // decoupled from this function: it never calls it, never mutates the
-  // `turns` array, and never appends any directive text to this payload.
   async function runSend(turns) {
     setErr('');
     lastTurnsRef.current = turns;
@@ -763,9 +677,6 @@ function Chat(props) {
     setNewCount(0);
     // Drop any leftover interrupted bubble from a prior turn before starting a new one.
     if (pendingRef.current) { pendingRef.current = null; setPending(null); }
-    // Sent as-is: no URL scan, no interception, no directive injection. Any
-    // link Max happens to paste in an ordinary message flows through
-    // unmodified, exactly like before this feature existed.
     const next = [...messages, {role:'user', content, ts: Date.now()}];
     setMessages(next);
     await runSend(next);
@@ -863,7 +774,7 @@ function Chat(props) {
         }))),
     view === 'tasks' ? h(Tasks, {session: props.session})
     : view === 'goals' ? h(Goals, null)
-    : view === 'upgrades' ? h(Upgrades, {session: props.session})
+    : view === 'upgrades' ? h(UpdatesMap, null)
     : h(React.Fragment, null,
     h('div', {className:'thread-wrap'},
       h('div', {id:'thread', ref:threadRef, onScroll:handleThreadScroll},
@@ -884,7 +795,6 @@ function Chat(props) {
     h('div', {className:'composer'},
       attachNote ? h('div', {className:'attach-note'}, attachNote) : null,
       h('button', {type:'button', className:'attach-btn', 'aria-label':'Attach file', onClick:onAttach}, '📎'),
-      h('button', {type:'button', className:'scope-btn', 'aria-label':'New domain-scoped research request', onClick:() => setScopeOpen(true)}, '🔎'),
       h('textarea', {ref:taRef, placeholder:'Message Alleah...', value:text, rows:1, onChange:e=>setText(e.target.value), onKeyDown:onKey}),
       generating
         ? h('button', {type:'button', className:'stop-btn', onClick:stop}, 'Stop')
@@ -892,11 +802,6 @@ function Chat(props) {
     historyOpen ? h(HistorySheet, {
       conversations, onClose:() => setHistoryOpen(false),
       onOpen:openConversation, onDelete:deleteConversation,
-    }) : null,
-    scopeOpen ? h(ResearchScopeSheet, {
-      onClose:() => setScopeOpen(false),
-      onSaveDraft: saveResearchDraft,
-      drafts: researchDrafts,
     }) : null);
 }
 
@@ -1061,6 +966,7 @@ const GOAL_STATUS_META = {
   abandoned: {color:'var(--neutral)', icon:'⦸'},
 };
 const GOALS_DAY = 86400000;
+Object.keys(GOAL_STATUS_META).forEach(k => { STATUS_META[k] = STATUS_META[k] || GOAL_STATUS_META[k]; });
 
 function loadGoals() {
   try {
@@ -1262,133 +1168,238 @@ function Goals(props) {
         h(GoalBox, {g, onToggle: toggleObjective, onGenerate: generateFor, generating: !!generating[g.id], genErr: genErr[g.id] || ''})))) : null);
 }
 
-function UpgradeCard(props) {
-  const p = props.p;
-  const benefit = BENEFIT_TYPES[p.benefit_type] || {label: p.benefit_type, color: 'var(--text-secondary)'};
-  const status = PROPOSAL_STATUS[p.status] || {label: p.status, color: 'var(--text-secondary)', icon:'•'};
-  return h('div', {className:'card'},
-    h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}},
-      h('span', {className:'chip', style:{background:'color-mix(in srgb, '+benefit.color+' 16%, transparent)', color:benefit.color, borderColor:'color-mix(in srgb, '+benefit.color+' 45%, transparent)'}}, benefit.label),
-      h(StatusBadge, {status:p.status, label:status.label})),
-    h('p', {style:{fontSize:'15px',fontWeight:700,margin:'10px 0 2px'}}, p.title),
-    h('p', {className:'small', style:{fontSize:'13.5px',color:'var(--text-secondary)',margin:'2px 0 0'}}, p.summary),
-    h('div', {className:'score-row'},
-      h('div', {className:'score-col'},
-        h('div', {className:'score-label'}, h('span', null, 'Functionality'), h('span', null, p.functionality_score + '/10')),
-        h('div', {className:'meter'}, h('div', {style:{width:(p.functionality_score*10)+'%', background:'var(--accent)'}}))),
-      h('div', {className:'score-col'},
-        h('div', {className:'score-label'}, h('span', null, 'Cost'), h('span', null, p.cost_score + '/10')),
-        h('div', {className:'meter'}, h('div', {style:{width:(p.cost_score*10)+'%', background:'var(--warning)'}})))),
-    h('div', {className:'priority-num'}, 'Priority score: ', h('b', null, (p.functionality_score - p.cost_score))),
-    p.status === 'proposed' ? h('div', {className:'upgrade-actions'},
-      h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'approved')}, 'Approve'),
-      h('button', {type:'button', className:'reject-btn', onClick:()=>props.onDecide(p.id, 'rejected')}, 'Reject'))
-    : (p.status === 'approved' || p.status === 'building') ? h('div', {className:'upgrade-actions'},
-      h('button', {type:'button', onClick:()=>props.onDecide(p.id, 'done')}, 'Mark done'))
-    : null);
+// ===== Updates tab: radial "snowflake" systems map =====
+// Replaces the old flat proposal-list UI. Fixture-backed only (SYSTEMS /
+// ALLEAH_NODE below) - a visual/interactive preview of the systems-map
+// concept, not wired to a table yet. No supabase.from() calls in this
+// section by design; see the module docstring/PR notes for the follow-up
+// once a real `system_updates`-style table exists.
+const MAP_WORLD_SIZE = 1000;
+const MAP_CENTER = MAP_WORLD_SIZE / 2;
+const MAP_RADIUS = 320;
+const MAP_MIN_ZOOM = 0.45;
+const MAP_MAX_ZOOM = 2.4;
+
+const ALLEAH_NODE = {
+  id: 'alleah',
+  name: 'ALLEAH',
+  description: 'The core assistant orchestrating every connected system around it \u2014 routing memory, tasks and decisions across Calendar, Curriculum, Blueprint, Staging, Goals and Reminders.',
+};
+
+const SYSTEMS = [
+  {
+    id: 'calendar', name: 'Calendar',
+    description: 'Tracks scheduled sessions, deadlines and reminders across your day, syncing lightweight events into planning conversations.',
+    updates: [
+      {id:'cal-1', title:'Recurring event sync', body:'Weekly recurring events created in chat are now deduplicated before being written to the calendar feed, so a repeated "every Monday" request no longer creates duplicate entries when mentioned twice.'},
+      {id:'cal-2', title:'Timezone fallback', body:'When a session doesn\u2019t specify a timezone, Calendar now falls back to the device\u2019s local timezone instead of UTC, matching what Reminders already does.'},
+    ],
+  },
+  {
+    id: 'curriculum', name: 'Curriculum',
+    description: 'Houses the structured lesson plans and skill sequences Alleah references when tutoring or building a learning path.',
+    updates: [],
+  },
+  {
+    id: 'blueprint', name: 'Blueprint',
+    description: 'Stores the architectural plan for features and system changes before they\u2019re built, keeping design decisions in one place.',
+    updates: [
+      {id:'bp-1', title:'Draft versioning', body:'Blueprint now keeps the last 5 drafts of a plan instead of overwriting in place, so an earlier revision can be recovered if a later edit removes something useful.'},
+      {id:'bp-2', title:'Cross-link to Goals', body:'Plans that reference a goal by name are now cross-linked automatically, so opening a Blueprint entry shows which active goal it supports.'},
+      {id:'bp-3', title:'Section reordering', body:'Sections within a blueprint can now be reordered by dragging, rather than requiring the whole document to be rewritten to change section order.'},
+    ],
+  },
+  {
+    id: 'staging', name: 'Staging',
+    description: 'A holding area where in-progress builds and revisions are tested before being promoted to the live app.',
+    updates: [
+      {id:'st-1', title:'Preview retention window', body:'Preview builds now stay reachable for 72 hours after a task completes instead of 24, giving more time to review before a preview link expires.'},
+    ],
+  },
+  {
+    id: 'goals', name: 'Goals',
+    description: 'Tracks longer-term objectives and the mini-steps that break them down into daily actions.',
+    updates: [],
+  },
+  {
+    id: 'reminders', name: 'Reminders',
+    description: 'Surfaces time-sensitive nudges and follow-ups so nothing important gets lost in conversation.',
+    updates: [
+      {id:'rm-1', title:'Snooze presets', body:'Reminders can now be snoozed using quick presets (15m, 1h, tomorrow morning) instead of only a custom date/time picker, cutting the taps needed for a routine snooze.'},
+      {id:'rm-2', title:'Digest grouping', body:'When more than three reminders land within the same hour, they\u2019re now grouped into a single digest notification rather than arriving as separate pings.'},
+      {id:'rm-3', title:'Location-aware nudges (experimental)', body:'An experimental mode surfaces a reminder early if it\u2019s tied to a place and the device appears to be near that place, falling back to the scheduled time otherwise.'},
+      {id:'rm-4', title:'Stale reminder cleanup', body:'Reminders left unacknowledged for more than 30 days are now flagged for review instead of silently expiring, so nothing important gets lost.'},
+    ],
+  },
+].map((s, i, arr) => {
+  const angle = (-90 + i * (360 / arr.length)) * Math.PI / 180;
+  return {
+    ...s,
+    x: MAP_CENTER + MAP_RADIUS * Math.cos(angle),
+    y: MAP_CENTER + MAP_RADIUS * Math.sin(angle),
+  };
+});
+
+function pulseBucket(count) {
+  if (!count) return 0;
+  if (count === 1) return 1;
+  if (count === 2) return 2;
+  return 3;
 }
 
-const PROPOSAL_STATUS = {
-  proposed: {label: 'Proposed', color: 'var(--text-secondary)', icon:'◌'},
-  approved: {label: 'Approved', color: 'var(--info)',            icon:'➜'},
-  building: {label: 'Building', color: 'var(--warning)',         icon:'⚙'},
-  done:     {label: 'Done',     color: 'var(--accent)',          icon:'✓'},
-  rejected: {label: 'Rejected', color: 'var(--danger)',          icon:'✕'},
-};
-Object.keys(PROPOSAL_STATUS).forEach(k => { STATUS_META[k] = {color: PROPOSAL_STATUS[k].color, icon: PROPOSAL_STATUS[k].icon}; });
-Object.keys(GOAL_STATUS_META).forEach(k => { STATUS_META[k] = STATUS_META[k] || GOAL_STATUS_META[k]; });
+function MapNode(props) {
+  const node = props.node, isCenter = props.isCenter, onOpen = props.onOpen;
+  const count = isCenter ? 0 : node.updates.length;
+  const bucket = pulseBucket(count);
+  const cls = ['map-node', isCenter ? 'map-node-center' : 'map-node-system',
+    !isCenter && bucket === 0 ? 'map-node-idle' : '',
+    !isCenter && bucket === 1 ? 'map-node-pulse-1' : '',
+    !isCenter && bucket === 2 ? 'map-node-pulse-2' : '',
+    !isCenter && bucket === 3 ? 'map-node-pulse-3' : ''].filter(Boolean).join(' ');
+  return h('div', {
+    className: cls,
+    style: {left: node.x + 'px', top: node.y + 'px'},
+    onClick: function(e){ e.stopPropagation(); onOpen(node.id); },
+    role: 'button', tabIndex: 0,
+    'aria-label': (isCenter ? node.name : node.name + (count ? ', ' + count + ' pending update' + (count===1?'':'s') : ', up to date')),
+  },
+    h('span', {className:'map-node-label'}, node.name),
+    !isCenter ? h('span', {className:'map-node-sub'}, count ? count + ' pending' : 'up to date') : null,
+    !isCenter && count ? h('span', {className:'map-node-badge'}, count) : null);
+}
 
-const OPEN_STATUSES = ['proposed', 'approved', 'building'];
-const STATUS_FILTERS = ['open', 'done', 'rejected', 'all'];
-const FILTER_LABELS = {open: 'Open', done: 'Completed', rejected: 'Rejected', all: 'All'};
+function UpdatePanel(props) {
+  const node = props.node, isCenter = props.isCenter, tab = props.tab, setTab = props.setTab, onClose = props.onClose;
+  const showUpdateTab = !isCenter;
+  const effectiveTab = isCenter ? 'about' : tab;
+  return h('div', {className:'update-panel', role:'dialog', 'aria-label': node.name + ' panel'},
+    h('div', {className:'update-panel-head'},
+      h('div', {className:'update-panel-tabs'},
+        h('button', {type:'button', className:'update-panel-tab' + (effectiveTab === 'about' ? ' active' : ''), onClick:function(){ setTab('about'); }}, 'About'),
+        showUpdateTab ? h('button', {type:'button', className:'update-panel-tab' + (effectiveTab === 'update' ? ' active' : ''), onClick:function(){ setTab('update'); }},
+          'Update', node.updates.length ? h('span', {className:'update-panel-tab-count'}, node.updates.length) : null) : null),
+      h('button', {type:'button', className:'update-panel-close', 'aria-label':'Close panel', onClick:onClose}, '\u2715')),
+    h('p', {className:'update-panel-name'}, node.name),
+    h('div', {className:'update-panel-body'},
+      effectiveTab === 'about'
+        ? h('p', {className:'update-panel-about'}, node.description)
+        : (node.updates.length
+            ? node.updates.map(function(u){ return h('div', {key:u.id, className:'update-panel-update-item'},
+                h('p', {className:'update-panel-update-title'}, u.title),
+                h('p', {className:'update-panel-update-body'}, u.body)); })
+            : h('p', {className:'update-panel-about'}, 'No pending updates for this system right now.'))));
+}
 
-const BENEFIT_TYPES = {
-  ui_improvement:    {label: 'UI improvement',    color: 'var(--info)'},
-  efficiency_upgrade:{label: 'Efficiency upgrade',color: 'var(--accent)'},
-  feature_update:    {label: 'Feature update',    color: 'var(--purple)'},
-  new_feature:       {label: 'New feature',       color: 'var(--warning)'},
-  bug_fix:           {label: 'Bug fix',           color: 'var(--danger)'},
-};
+function UpdatesMap() {
+  const viewportRef = React.useRef(null);
+  const [zoom, setZoom] = React.useState(1);
+  const [pan, setPan] = React.useState({x:0, y:0});
+  const initedRef = React.useRef(false);
+  const [activeId, setActiveId] = React.useState(null);
+  const [tab, setTab] = React.useState('about');
+  const dragRef = React.useRef(null);
+  const wasDragRef = React.useRef(false);
 
-function ResearchDirectiveForm(props) {
-  const [text, setText] = React.useState('');
-  const [priority, setPriority] = React.useState('3');
-  const [busy, setBusy] = React.useState(false);
+  React.useLayoutEffect(function(){
+    if (initedRef.current) return;
+    const el = viewportRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPan({x: rect.width / 2 - MAP_CENTER, y: rect.height / 2 - MAP_CENTER});
+    initedRef.current = true;
+  }, []);
 
-  async function submit(e) {
+  function applyZoom(nextZoomRaw, originX, originY) {
+    const nextZoom = Math.min(MAP_MAX_ZOOM, Math.max(MAP_MIN_ZOOM, nextZoomRaw));
+    setPan(function(p){
+      const worldX = (originX - p.x) / zoom;
+      const worldY = (originY - p.y) / zoom;
+      return {x: originX - worldX * nextZoom, y: originY - worldY * nextZoom};
+    });
+    setZoom(nextZoom);
+  }
+
+  function zoomByButton(factor) {
+    const el = viewportRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    applyZoom(zoom * factor, rect.width / 2, rect.height / 2);
+  }
+
+  function onWheel(e) {
     e.preventDefault();
-    const t = text.trim();
-    if (!t || busy) return;
-    setBusy(true);
-    await props.onSubmit(t, Number(priority));
-    setBusy(false);
-    setText(''); setPriority('3');
+    const el = viewportRef.current;
+    const rect = el.getBoundingClientRect();
+    const originX = e.clientX - rect.left;
+    const originY = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    applyZoom(zoom * factor, originX, originY);
   }
 
-  return h('form', {className:'card addform', onSubmit:submit},
-    h('p', {style:{fontSize:'14px',fontWeight:700,margin:'0 0 2px'}}, 'Queue a research question'),
-    h('textarea', {
-      placeholder:'What should Alleah look into?', value:text, rows:3,
-      style:{minHeight:'70px'}, onChange:e=>setText(e.target.value),
-    }),
-    h('div', {className:'row2'},
-      h('select', {value:priority, onChange:e=>setPriority(e.target.value)},
-        [1,2,3,4,5].map(n => h('option', {key:n, value:n}, 'Priority ' + n + (n===1?' (low)':n===5?' (high)':'')))),
-      h('button', {type:'submit', disabled:busy || !text.trim()}, busy ? 'Queuing...' : 'Queue question')));
-}
-
-function Upgrades(props) {
-  const [proposals, setProposals] = React.useState([]);
-  const [filter, setFilter] = React.useState('open');
-  const [msg, setMsg] = React.useState('loading...');
-  const [directiveMsg, setDirectiveMsg] = React.useState('');
-
-  async function load() {
-    const r = await supabase.from('optimization_proposals').select('*').order('priority', {ascending:false});
-    if (r.error) { setMsg('Error: ' + r.error.message); return; }
-    setProposals(r.data);
-    setMsg(r.data.length ? '' : 'No proposals yet. Alleah will file these as she finds them.');
+  function beginDrag(clientX, clientY) {
+    dragRef.current = {startX: clientX, startY: clientY, panX: pan.x, panY: pan.y};
+    wasDragRef.current = false;
   }
-  React.useEffect(() => { load(); }, []);
+  function moveDrag(clientX, clientY) {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = clientX - d.startX, dy = clientY - d.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) wasDragRef.current = true;
+    setPan({x: d.panX + dx, y: d.panY + dy});
+  }
+  function endDrag() { dragRef.current = null; }
 
-  async function decide(id, status) {
-    const prev = proposals;
-    setProposals(ps => ps.map(p => p.id === id ? {...p, status} : p)); // optimistic
-    const r = await supabase.from('optimization_proposals').update({status}).eq('id', id);
-    if (r.error) { setProposals(prev); setMsg('Error: ' + r.error.message); }
+  React.useEffect(function(){
+    function onMove(e) { moveDrag(e.clientX, e.clientY); }
+    function onUp() { endDrag(); }
+    function onTouchMove(e) { if (e.touches && e.touches[0]) moveDrag(e.touches[0].clientX, e.touches[0].clientY); }
+    function onTouchEnd() { endDrag(); }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onTouchMove, {passive:true});
+    window.addEventListener('touchend', onTouchEnd);
+    return function(){
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [pan.x, pan.y, zoom]);
+
+  function onMouseDown(e) { if (e.button !== 0) return; beginDrag(e.clientX, e.clientY); }
+  function onTouchStart(e) { if (e.touches && e.touches[0]) beginDrag(e.touches[0].clientX, e.touches[0].clientY); }
+
+  function onBackgroundClick() {
+    if (wasDragRef.current) { wasDragRef.current = false; return; }
+    setActiveId(null);
   }
 
-  async function queueDirective(directive_text, priority) {
-    const r = await supabase.from('research_directives').insert({directive_text, priority});
-    setDirectiveMsg(r.error ? 'Error: ' + r.error.message : 'Question queued.');
-    setTimeout(() => setDirectiveMsg(''), 3000);
+  function openNode(id) {
+    setActiveId(id);
+    setTab('about');
   }
 
-  const visible = filter === 'all' ? proposals
-    : filter === 'open' ? proposals.filter(p => OPEN_STATUSES.includes(p.status))
-    : proposals.filter(p => p.status === filter);
-  const counts = STATUS_FILTERS.reduce((acc, f) => {
-    acc[f] = f === 'all' ? proposals.length
-      : f === 'open' ? proposals.filter(p => OPEN_STATUSES.includes(p.status)).length
-      : proposals.filter(p => p.status === f).length;
-    return acc;
-  }, {});
+  const activeNode = activeId === 'alleah' ? ALLEAH_NODE : (SYSTEMS.find(function(s){ return s.id === activeId; }) || null);
+  const isCenter = activeId === 'alleah';
 
-  return h('div', {id:'upgrades'},
-    h('div', {className:'filterbar'},
-      STATUS_FILTERS.map(f => h('button', {
-        key:f, type:'button', className:'filterbtn' + (filter === f ? ' active' : ''),
-        onClick:() => setFilter(f),
-      }, FILTER_LABELS[f] + ' (' + counts[f] + ')'))),
-    proposals.length ? h('div', {className:'summary'},
-      h('span', null, h('b', null, proposals.length), ' total'),
-      STATUS_FILTERS.filter(f => f !== 'all').map(f => h('span', {key:f},
-        h('b', null, counts[f]), ' ' + FILTER_LABELS[f].toLowerCase()))) : null,
-    msg ? h('p', {className:'muted'}, msg) : null,
-    visible.map(p => h(UpgradeCard, {key:p.id, p, onDecide:decide})),
-    visible.length === 0 && proposals.length > 0 ? h('p', {className:'muted', style:{padding:'8px 2px'}}, 'No proposals match this filter.') : null,
-    h(ResearchDirectiveForm, {onSubmit:queueDirective}),
-    directiveMsg ? h('p', {className:'small', style:{color:'var(--accent)'}}, '✓ ' + directiveMsg) : null);
+  return h('div', {className:'updates-view'},
+    h('div', {
+      className:'map-viewport', ref:viewportRef,
+      onWheel: onWheel, onMouseDown: onMouseDown, onTouchStart: onTouchStart, onClick: onBackgroundClick,
+    },
+      h('div', {className:'map-world', style:{width:MAP_WORLD_SIZE+'px', height:MAP_WORLD_SIZE+'px', transform:'translate(' + pan.x + 'px,' + pan.y + 'px) scale(' + zoom + ')'}},
+        h('svg', {className:'map-lines', width:MAP_WORLD_SIZE, height:MAP_WORLD_SIZE},
+          SYSTEMS.map(function(s){ return h('line', {
+            key:s.id, x1:MAP_CENTER, y1:MAP_CENTER, x2:s.x, y2:s.y,
+            stroke:'var(--border)', strokeWidth:2,
+          }); })),
+        h(MapNode, {node:ALLEAH_NODE, isCenter:true, onOpen:openNode}),
+        SYSTEMS.map(function(s){ return h(MapNode, {key:s.id, node:s, isCenter:false, onOpen:openNode}); })),
+      h('div', {className:'map-hint'}, 'Drag to pan \u00b7 scroll or +/\u2212 to zoom')),
+    h('div', {className:'map-zoom-controls'},
+      h('button', {type:'button', className:'map-zoom-btn', 'aria-label':'Zoom in', onClick:function(){ zoomByButton(1.25); }}, '+'),
+      h('button', {type:'button', className:'map-zoom-btn', 'aria-label':'Zoom out', onClick:function(){ zoomByButton(1/1.25); }}, '\u2212')),
+    activeNode ? h(UpdatePanel, {node:activeNode, isCenter:isCenter, tab:tab, setTab:setTab, onClose:function(){ setActiveId(null); }}) : null);
 }
 
 function App() {
@@ -1403,4 +1414,3 @@ function App() {
 }
 createRoot(document.getElementById('root')).render(h(App));
 </script></body></html>
-
