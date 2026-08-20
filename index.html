@@ -259,6 +259,29 @@ input,select{width:100%;background:var(--surface);color:var(--text-primary);bord
 .update-panel-update-item + .update-panel-update-item{margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
 .update-panel-update-title{font-size:14.5px;font-weight:700;margin:0 0 4px;color:var(--text-primary)}
 .update-panel-update-body{font-size:14px;color:var(--text-secondary);margin:0;white-space:pre-wrap}
+/* Updates map: live proposal cards + directive form (2026-08-20 rebuild) */
+.prop-filterbar{display:flex;gap:6px;margin:2px 0 10px}
+.prop-filterbtn{background:#12151a;border:1px solid #2c313a;border-radius:999px;color:#9aa3ad;font-size:12px;padding:4px 10px;cursor:pointer}
+.prop-filterbtn.active{color:#e8eaed;border-color:#58a6ff}
+.prop-card{background:#12151a;border:1px solid #2c313a;border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.prop-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.prop-status{font-size:11px;border:1px solid;border-radius:999px;padding:1px 8px}
+.prop-scores{font-size:11px;color:#9aa3ad}
+.prop-title{font-size:13px;font-weight:600;margin:0 0 4px;color:#e8eaed}
+.prop-summary{font-size:12px;color:#9aa3ad;margin:0 0 8px;line-height:1.4}
+.prop-actions{display:flex;gap:8px}
+.prop-btn{border-radius:8px;border:1px solid #2c313a;background:#191d24;color:#e8eaed;font-size:12px;padding:5px 12px;cursor:pointer}
+.prop-btn.approve{border-color:#3ecf8e;color:#3ecf8e}
+.prop-btn.reject{border-color:#ff7b72;color:#ff7b72}
+.prop-btn.donebtn{border-color:#58a6ff;color:#58a6ff}
+.panel-directive{border-top:1px solid #2c313a;margin-top:12px;padding-top:10px}
+.panel-directive-title{font-size:12px;font-weight:600;margin:0 0 6px;color:#e8eaed}
+.panel-directive-text{width:100%;background:#0d1014;border:1px solid #2c313a;border-radius:8px;color:#e8eaed;font-size:12px;padding:6px 8px;resize:vertical;box-sizing:border-box}
+.panel-directive-row{display:flex;gap:8px;margin-top:6px;align-items:center}
+.panel-directive-priority{background:#12151a;border:1px solid #2c313a;border-radius:8px;color:#e8eaed;font-size:12px;padding:4px 6px}
+.panel-directive-queue{border-radius:8px;border:1px solid #3ecf8e;background:#191d24;color:#3ecf8e;font-size:12px;padding:5px 14px;cursor:pointer}
+.panel-directive-queue:disabled{opacity:.4;cursor:default}
+.panel-directive-msg{font-size:12px;color:#3ecf8e;margin:6px 0 0}
 </style></head><body>
 <div id="root"></div>
 <script type="module">
@@ -1169,76 +1192,57 @@ function Goals(props) {
 }
 
 // ===== Updates tab: radial "snowflake" systems map =====
-// Replaces the old flat proposal-list UI. Fixture-backed only (SYSTEMS /
-// ALLEAH_NODE below) - a visual/interactive preview of the systems-map
-// concept, not wired to a table yet. No supabase.from() calls in this
-// section by design; see the module docstring/PR notes for the follow-up
-// once a real `system_updates`-style table exists.
 const MAP_WORLD_SIZE = 1000;
 const MAP_CENTER = MAP_WORLD_SIZE / 2;
 const MAP_RADIUS = 320;
 const MAP_MIN_ZOOM = 0.45;
 const MAP_MAX_ZOOM = 2.4;
 
+// Live data layer (2026-08-20 rebuild): every bubble is fed from
+// optimization_proposals - nothing on this map is hardcoded. A proposal's
+// system is derived from its content, so new ideas appear automatically
+// ('Other' until they earn a bubble of their own). Engine/efficiency work
+// lives under the center ALLEAH node.
 const ALLEAH_NODE = {
   id: 'alleah',
   name: 'ALLEAH',
-  description: 'The core assistant orchestrating every connected system around it \u2014 routing memory, tasks and decisions across Calendar, Curriculum, Blueprint, Staging, Goals and Reminders.',
+  description: 'Alleah\u2019s own engine \u2014 the background worker that researches, builds, reviews and improves itself. Efficiency and cost upgrades live here. Queue a research question below and she picks it up within a minute.',
 };
 
-const SYSTEMS = [
-  {
-    id: 'calendar', name: 'Calendar',
-    description: 'Tracks scheduled sessions, deadlines and reminders across your day, syncing lightweight events into planning conversations.',
-    updates: [
-      {id:'cal-1', title:'Recurring event sync', body:'Weekly recurring events created in chat are now deduplicated before being written to the calendar feed, so a repeated "every Monday" request no longer creates duplicate entries when mentioned twice.'},
-      {id:'cal-2', title:'Timezone fallback', body:'When a session doesn\u2019t specify a timezone, Calendar now falls back to the device\u2019s local timezone instead of UTC, matching what Reminders already does.'},
-    ],
-  },
-  {
-    id: 'curriculum', name: 'Curriculum',
-    description: 'Houses the structured lesson plans and skill sequences Alleah references when tutoring or building a learning path.',
-    updates: [],
-  },
-  {
-    id: 'blueprint', name: 'Blueprint',
-    description: 'Stores the architectural plan for features and system changes before they\u2019re built, keeping design decisions in one place.',
-    updates: [
-      {id:'bp-1', title:'Draft versioning', body:'Blueprint now keeps the last 5 drafts of a plan instead of overwriting in place, so an earlier revision can be recovered if a later edit removes something useful.'},
-      {id:'bp-2', title:'Cross-link to Goals', body:'Plans that reference a goal by name are now cross-linked automatically, so opening a Blueprint entry shows which active goal it supports.'},
-      {id:'bp-3', title:'Section reordering', body:'Sections within a blueprint can now be reordered by dragging, rather than requiring the whole document to be rewritten to change section order.'},
-    ],
-  },
-  {
-    id: 'staging', name: 'Staging',
-    description: 'A holding area where in-progress builds and revisions are tested before being promoted to the live app.',
-    updates: [
-      {id:'st-1', title:'Preview retention window', body:'Preview builds now stay reachable for 72 hours after a task completes instead of 24, giving more time to review before a preview link expires.'},
-    ],
-  },
-  {
-    id: 'goals', name: 'Goals',
-    description: 'Tracks longer-term objectives and the mini-steps that break them down into daily actions.',
-    updates: [],
-  },
-  {
-    id: 'reminders', name: 'Reminders',
-    description: 'Surfaces time-sensitive nudges and follow-ups so nothing important gets lost in conversation.',
-    updates: [
-      {id:'rm-1', title:'Snooze presets', body:'Reminders can now be snoozed using quick presets (15m, 1h, tomorrow morning) instead of only a custom date/time picker, cutting the taps needed for a routine snooze.'},
-      {id:'rm-2', title:'Digest grouping', body:'When more than three reminders land within the same hour, they\u2019re now grouped into a single digest notification rather than arriving as separate pings.'},
-      {id:'rm-3', title:'Location-aware nudges (experimental)', body:'An experimental mode surfaces a reminder early if it\u2019s tied to a place and the device appears to be near that place, falling back to the scheduled time otherwise.'},
-      {id:'rm-4', title:'Stale reminder cleanup', body:'Reminders left unacknowledged for more than 30 days are now flagged for review instead of silently expiring, so nothing important gets lost.'},
-    ],
-  },
-].map((s, i, arr) => {
-  const angle = (-90 + i * (360 / arr.length)) * Math.PI / 180;
-  return {
-    ...s,
-    x: MAP_CENTER + MAP_RADIUS * Math.cos(angle),
-    y: MAP_CENTER + MAP_RADIUS * Math.sin(angle),
-  };
-});
+const SYSTEM_DEFS = [
+  {id:'app', name:'App', description:'The web app itself \u2014 chat, tabs, Goals, every screen you touch. Approving an item here auto-builds it into a preview, then a PR for you to merge.'},
+  {id:'cloud', name:'Cloud Mind', description:'Alleah\u2019s cloud brain \u2014 the Connection Engine, Memory folders and the daily charter. Approvals here are recorded as decisions; neither auto-pipeline can build them, so they go to the relay.'},
+  {id:'other', name:'Other', description:'Anything that doesn\u2019t match a known system yet. New ideas land here automatically until they earn a bubble of their own.'},
+];
+
+const CLOUD_RX = /connection engine|memory folder|epistemic|edge function|daily charter|calibration loop|conversation memory/i;
+const ENGINE_RX = /batches api|message batches|prompt cach|model routing|tiered model|subagent|effort|tool search|memory tool|claude api|anthropic api|background worker|review seat|qa seat|daily research|worker task|research task|pin matching|build loop|build task|overloaded|retry|backoff|cache diagnostic|skill module|agent skills/i;
+const OPEN_STATUSES = ['proposed', 'approved', 'building'];
+const PROP_STATUS_META = {
+  proposed: {label:'Proposed', color:'#ffd166'},
+  approved: {label:'Approved', color:'#3ecf8e'},
+  building: {label:'Building', color:'#58a6ff'},
+  done:     {label:'Done',     color:'#9aa3ad'},
+  rejected: {label:'Rejected', color:'#ff7b72'},
+};
+
+function classifySystem(p) {
+  const t = (p.title || '') + ' ' + (p.summary || '');
+  if (CLOUD_RX.test(t)) return 'cloud';
+  if (ENGINE_RX.test(t)) return 'alleah';
+  if (p.benefit_type === 'ui_improvement'
+      || /chat section|tab\b|screen|mobile|composer|message row|the app/i.test(t)) return 'app';
+  return 'other';
+}
+
+function layoutSystems(defs) {
+  return defs.map(function(s, i){
+    const angle = (-90 + i * (360 / defs.length)) * Math.PI / 180;
+    return {...s,
+      x: MAP_CENTER + MAP_RADIUS * Math.cos(angle),
+      y: MAP_CENTER + MAP_RADIUS * Math.sin(angle)};
+  });
+}
 
 function pulseBucket(count) {
   if (!count) return 0;
@@ -1249,7 +1253,7 @@ function pulseBucket(count) {
 
 function MapNode(props) {
   const node = props.node, isCenter = props.isCenter, onOpen = props.onOpen;
-  const count = isCenter ? 0 : node.updates.length;
+  const count = (node.updates || []).length;
   const bucket = pulseBucket(count);
   const cls = ['map-node', isCenter ? 'map-node-center' : 'map-node-system',
     !isCenter && bucket === 0 ? 'map-node-idle' : '',
@@ -1265,29 +1269,70 @@ function MapNode(props) {
   },
     h('span', {className:'map-node-label'}, node.name),
     !isCenter ? h('span', {className:'map-node-sub'}, count ? count + ' pending' : 'up to date') : null,
-    !isCenter && count ? h('span', {className:'map-node-badge'}, count) : null);
+    count ? h('span', {className:'map-node-badge'}, count) : null);
 }
 
 function UpdatePanel(props) {
   const node = props.node, isCenter = props.isCenter, tab = props.tab, setTab = props.setTab, onClose = props.onClose;
-  const showUpdateTab = !isCenter;
-  const effectiveTab = isCenter ? 'about' : tab;
+  const onDecide = props.onDecide, onQueue = props.onQueue, dirMsg = props.dirMsg;
+  const [filter, setFilter] = React.useState('open');
+  const [dirText, setDirText] = React.useState('');
+  const [dirPriority, setDirPriority] = React.useState(3);
+  const items = node.items || [];
+  const openItems = items.filter(function(p){ return OPEN_STATUSES.indexOf(p.status) >= 0; });
+  const shown = filter === 'open' ? openItems : items.filter(function(p){ return p.status === filter; });
+  const counts = {open: openItems.length,
+                  done: items.filter(function(p){ return p.status === 'done'; }).length,
+                  rejected: items.filter(function(p){ return p.status === 'rejected'; }).length};
   return h('div', {className:'update-panel', role:'dialog', 'aria-label': node.name + ' panel'},
     h('div', {className:'update-panel-head'},
       h('div', {className:'update-panel-tabs'},
-        h('button', {type:'button', className:'update-panel-tab' + (effectiveTab === 'about' ? ' active' : ''), onClick:function(){ setTab('about'); }}, 'About'),
-        showUpdateTab ? h('button', {type:'button', className:'update-panel-tab' + (effectiveTab === 'update' ? ' active' : ''), onClick:function(){ setTab('update'); }},
-          'Update', node.updates.length ? h('span', {className:'update-panel-tab-count'}, node.updates.length) : null) : null),
+        h('button', {type:'button', className:'update-panel-tab' + (tab === 'about' ? ' active' : ''), onClick:function(){ setTab('about'); }}, 'About'),
+        h('button', {type:'button', className:'update-panel-tab' + (tab === 'update' ? ' active' : ''), onClick:function(){ setTab('update'); }},
+          'Updates', openItems.length ? h('span', {className:'update-panel-tab-count'}, openItems.length) : null)),
       h('button', {type:'button', className:'update-panel-close', 'aria-label':'Close panel', onClick:onClose}, '\u2715')),
     h('p', {className:'update-panel-name'}, node.name),
     h('div', {className:'update-panel-body'},
-      effectiveTab === 'about'
+      tab === 'about'
         ? h('p', {className:'update-panel-about'}, node.description)
-        : (node.updates.length
-            ? node.updates.map(function(u){ return h('div', {key:u.id, className:'update-panel-update-item'},
-                h('p', {className:'update-panel-update-title'}, u.title),
-                h('p', {className:'update-panel-update-body'}, u.body)); })
-            : h('p', {className:'update-panel-about'}, 'No pending updates for this system right now.'))));
+        : h('div', null,
+            h('div', {className:'prop-filterbar'},
+              [['open','Open'],['done','Completed'],['rejected','Rejected']].map(function(f){
+                return h('button', {key:f[0], type:'button',
+                  className:'prop-filterbtn' + (filter === f[0] ? ' active' : ''),
+                  onClick:function(){ setFilter(f[0]); }}, f[1] + ' (' + counts[f[0]] + ')');
+              })),
+            shown.length ? shown.map(function(p){ return h(ProposalCard, {key:p.id, p:p, onDecide:onDecide}); })
+              : h('p', {className:'update-panel-about'}, 'Nothing here right now.')),
+      isCenter ? h('div', {className:'panel-directive'},
+        h('p', {className:'panel-directive-title'}, 'Queue a research question'),
+        h('textarea', {className:'panel-directive-text', rows:2, value:dirText,
+          placeholder:'What should Alleah research?',
+          onChange:function(e){ setDirText(e.target.value); }}),
+        h('div', {className:'panel-directive-row'},
+          h('select', {className:'panel-directive-priority', value:dirPriority,
+            onChange:function(e){ setDirPriority(parseInt(e.target.value, 10)); }},
+            [1,2,3,4,5].map(function(n){ return h('option', {key:n, value:n}, 'Priority ' + n); })),
+          h('button', {type:'button', className:'panel-directive-queue',
+            disabled: dirText.trim().length < 8,
+            onClick:function(){ onQueue(dirText.trim(), dirPriority); setDirText(''); }}, 'Queue')),
+        dirMsg ? h('p', {className:'panel-directive-msg'}, dirMsg) : null) : null));
+}
+
+function ProposalCard(props) {
+  const p = props.p, onDecide = props.onDecide;
+  const meta = PROP_STATUS_META[p.status] || {label: p.status, color: '#9aa3ad'};
+  return h('div', {className:'prop-card'},
+    h('div', {className:'prop-card-top'},
+      h('span', {className:'prop-status', style:{color: meta.color, borderColor: meta.color}}, meta.label),
+      h('span', {className:'prop-scores'}, 'value ' + (p.functionality_score ?? '?') + ' \u00b7 cost ' + (p.cost_score ?? '?'))),
+    h('p', {className:'prop-title'}, p.title),
+    h('p', {className:'prop-summary'}, p.summary),
+    p.status === 'proposed' ? h('div', {className:'prop-actions'},
+      h('button', {type:'button', className:'prop-btn approve', onClick:function(){ onDecide(p.id, 'approved'); }}, 'Approve'),
+      h('button', {type:'button', className:'prop-btn reject', onClick:function(){ onDecide(p.id, 'rejected'); }}, 'Reject'))
+    : (p.status === 'approved' || p.status === 'building') ? h('div', {className:'prop-actions'},
+      h('button', {type:'button', className:'prop-btn donebtn', onClick:function(){ onDecide(p.id, 'done'); }}, 'Mark done')) : null);
 }
 
 function UpdatesMap() {
@@ -1299,6 +1344,42 @@ function UpdatesMap() {
   const [tab, setTab] = React.useState('about');
   const dragRef = React.useRef(null);
   const wasDragRef = React.useRef(false);
+
+  const [proposals, setProposals] = React.useState([]);
+  const [loadErr, setLoadErr] = React.useState('');
+  const [dirMsg, setDirMsg] = React.useState('');
+  async function load() {
+    const r = await supabase.from('optimization_proposals').select('*').order('created_at', {ascending:false});
+    if (r.error) { setLoadErr('Error loading updates: ' + r.error.message); return; }
+    setLoadErr('');
+    setProposals(r.data || []);
+  }
+  React.useEffect(function(){ load(); }, []);
+  async function decide(id, status) {
+    setProposals(function(ps){ return ps.map(function(p){ return p.id === id ? {...p, status: status} : p; }); });
+    const r = await supabase.from('optimization_proposals').update({status: status}).eq('id', id);
+    if (r.error) { load(); }
+  }
+  async function queueDirective(text, priority) {
+    const r = await supabase.from('research_directives').insert({directive_text: text, priority: priority});
+    setDirMsg(r.error ? 'Error: ' + r.error.message : 'Queued \u2014 Alleah picks it up within a minute.');
+    setTimeout(function(){ setDirMsg(''); }, 4000);
+  }
+  const grouped = {};
+  proposals.forEach(function(p){
+    const k = classifySystem(p);
+    (grouped[k] = grouped[k] || []).push(p);
+  });
+  function withItems(def) {
+    const items = grouped[def.id] || [];
+    return {...def, items: items,
+            updates: items.filter(function(p){ return OPEN_STATUSES.indexOf(p.status) >= 0; })};
+  }
+  const systems = layoutSystems(
+    SYSTEM_DEFS.filter(function(s){ return s.id !== 'other' || (grouped.other || []).length; })
+  ).map(withItems);
+  const centerNode = withItems(ALLEAH_NODE);
+
 
   React.useLayoutEffect(function(){
     if (initedRef.current) return;
@@ -1376,10 +1457,10 @@ function UpdatesMap() {
 
   function openNode(id) {
     setActiveId(id);
-    setTab('about');
+    setTab('update');
   }
 
-  const activeNode = activeId === 'alleah' ? ALLEAH_NODE : (SYSTEMS.find(function(s){ return s.id === activeId; }) || null);
+  const activeNode = activeId === 'alleah' ? centerNode : (systems.find(function(s){ return s.id === activeId; }) || null);
   const isCenter = activeId === 'alleah';
 
   return h('div', {className:'updates-view'},
@@ -1389,17 +1470,18 @@ function UpdatesMap() {
     },
       h('div', {className:'map-world', style:{width:MAP_WORLD_SIZE+'px', height:MAP_WORLD_SIZE+'px', transform:'translate(' + pan.x + 'px,' + pan.y + 'px) scale(' + zoom + ')'}},
         h('svg', {className:'map-lines', width:MAP_WORLD_SIZE, height:MAP_WORLD_SIZE},
-          SYSTEMS.map(function(s){ return h('line', {
+          systems.map(function(s){ return h('line', {
             key:s.id, x1:MAP_CENTER, y1:MAP_CENTER, x2:s.x, y2:s.y,
             stroke:'var(--border)', strokeWidth:2,
           }); })),
-        h(MapNode, {node:ALLEAH_NODE, isCenter:true, onOpen:openNode}),
-        SYSTEMS.map(function(s){ return h(MapNode, {key:s.id, node:s, isCenter:false, onOpen:openNode}); })),
+        h(MapNode, {node:centerNode, isCenter:true, onOpen:openNode}),
+        systems.map(function(s){ return h(MapNode, {key:s.id, node:s, isCenter:false, onOpen:openNode}); })),
       h('div', {className:'map-hint'}, 'Drag to pan \u00b7 scroll or +/\u2212 to zoom')),
     h('div', {className:'map-zoom-controls'},
       h('button', {type:'button', className:'map-zoom-btn', 'aria-label':'Zoom in', onClick:function(){ zoomByButton(1.25); }}, '+'),
       h('button', {type:'button', className:'map-zoom-btn', 'aria-label':'Zoom out', onClick:function(){ zoomByButton(1/1.25); }}, '\u2212')),
-    activeNode ? h(UpdatePanel, {node:activeNode, isCenter:isCenter, tab:tab, setTab:setTab, onClose:function(){ setActiveId(null); }}) : null);
+    loadErr ? h('p', {className:'muted', style:{padding:'8px 12px'}}, loadErr) : null,
+    activeNode ? h(UpdatePanel, {node:activeNode, isCenter:isCenter, tab:tab, setTab:setTab, onDecide:decide, onQueue:queueDirective, dirMsg:dirMsg, onClose:function(){ setActiveId(null); }}) : null);
 }
 
 function App() {
