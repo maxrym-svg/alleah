@@ -45,7 +45,7 @@ const ANSWER_SYSTEM = [
   "- Before queuing a vague ask: ONE focused round of questions - deliverable shape, personal context the worker needs written INTO the instruction (it starts blind: no memory access, no conversation history), and scope vs the caps (offer to split oversized asks). If already clear and self-contained, ask nothing.",
   "- Build instructions must describe the feature concretely (what it looks like, where it lives in the app, how it behaves). Note that schema/database changes cannot ship through previews - if the feature obviously needs one, say so and keep the preview fixture-backed.",
   "- REMOVAL requests are build tasks too. A removal instruction must say: identify everything that references this feature - state, styles, functions, other views - mend every seam, and list in the result what else was touched. Never compose a removal as just 'delete X'.",
-  "- Then compose the final instruction and show it: 'Here's what I'll queue: <instruction>. Good?'",
+  "- Then compose the final instruction and show it. Short instructions (under ~120 words): quote in full - 'Here's what I'll queue: <instruction>. Good?'. Long instructions: do NOT echo verbatim; give a faithful 3-5 line summary of what will be queued and say the full text goes to the worker exactly as composed, then ask 'Good to queue?'. Never let the echo crowd out the question at the end.",
   "- ONLY after Max replies with a clear yes to that exact instruction, call queue_background_task with max_confirmed true and the right kind. Then confirm naturally: worker picks it up within a minute, Telegram when done (build tasks: the Telegram carries the preview URL).",
   "Shipping a previewed feature:",
   "- When Max clearly says to ship/promote a previewed feature ('ship it', 'promote the streak feature', 'make it live'), call queue_ship_review with that build task's id (find it in RECENT TASKS). Tell him the review is queued and the verdict comes shortly. NEVER promise or claim to promote anything yourself - promotion is Max's own button, always.",
@@ -701,7 +701,10 @@ Deno.serve(async (req) => {
 
     const am = await anthropic({
       model: ANSWER_MODEL,
-      max_tokens: 1500,
+      // 4000 (was 1500): long research-instruction relays were hitting the
+      // cap mid-echo, eating the trailing 'Good to queue?' and dead-ending
+      // the confirmation flow (2026-08-20). Cost is per generated token.
+      max_tokens: 4000,
       system: fullSystem,
       tools: [QUEUE_TOOL, SHIP_TOOL],
       messages: chatMessages,
@@ -767,7 +770,7 @@ Deno.serve(async (req) => {
       try {
         final = await anthropic({
           model: ANSWER_MODEL,
-          max_tokens: 800,
+          max_tokens: 2000,
           system: fullSystem,
           // tools MUST be present when the transcript contains tool_use/tool_result blocks
           // (API rejects otherwise); tool_choice none = one tool call per turn, then words.
@@ -792,7 +795,17 @@ Deno.serve(async (req) => {
     }
 
     const textBlock = (final.content || []).find((c: { type: string }) => c.type === "text") as { text?: string } | undefined;
-    const answer = textBlock?.text || "";
+    let answer = textBlock?.text || "";
+    // Truncation guard: a max_tokens stop must never masquerade as a
+    // finished reply (the old silent version ate confirmation questions
+    // and produced the empty-bubble glitch, 2026-08-20).
+    if ((final as { stop_reason?: string }).stop_reason === "max_tokens") {
+      answer = (answer ? answer + "\n\n" : "")
+        + "[I hit my reply-length limit there. Say \"continue\" for the rest - or for a long research instruction, say \"queue it as written\" and I'll queue your exact text.]";
+    }
+    if (!answer.trim()) {
+      answer = "I produced an empty reply - a length-limit glitch on my side, not anything you did. Re-send the message (or trim it slightly) and it should go through.";
+    }
 
     // Ambient capture continues after the response returns (B1) - survives client disconnect.
     // Clustering pass chains after it (internally limited to once per day).
